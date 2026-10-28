@@ -1,0 +1,189 @@
+name: WSS downloaded-artifact preflight
+run-name: WSS preflight ${{ fromJSON(inputs.candidate_json).run_id }} / ${{ inputs.correlation_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_json: {required: true, type: string}
+      wrapper_sha: {required: true, type: string}
+      cli_sha: {required: true, type: string}
+      correlation_id: {required: true, type: string}
+permissions:
+  contents: read
+concurrency:
+  group: matlab-preflight-wrapper-${{ inputs.correlation_id }}
+  cancel-in-progress: false
+jobs:
+  behavioral:
+    name: Preflight behavioral tests
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          persist-credentials: false
+      - name: Require approved baseline and trusted dev event
+        shell: pwsh
+        run: |
+          $config=Get-Content source/.github/matlab-ci.json -Raw | ConvertFrom-Json
+          if (!$config.baseline_ready -or $env:GITHUB_REF -cne 'refs/heads/dev' -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch') { throw 'Native candidate activation remains pending.' }
+      - name: Validate source refs before checking out or executing nominated source
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WRAPPER_SHA: ${{ inputs.wrapper_sha }}
+          CLI_SHA: ${{ inputs.cli_sha }}
+        run: |
+          foreach ($pair in @(@('Matlab_WSS_Integration_Lib',$env:WRAPPER_SHA),@('CLI_Matlab_WSS_Application',$env:CLI_SHA))) {
+            if ($pair[1] -cnotmatch '^[0-9a-f]{40}$') { throw 'Full source SHA required.' }
+            $actual=gh api "repos/cwru-non-academic/$($pair[0])/branches/dev" --jq '.commit.sha'
+            if ($LASTEXITCODE -ne 0 -or $actual -cne $pair[1]) { throw 'Nominated source is not current trusted dev.' }
+          }
+          $own=if ('wrapper' -ceq 'wrapper') { $env:WRAPPER_SHA } else { $env:CLI_SHA }
+          if ($own -cne $env:GITHUB_SHA) { throw 'Own source differs from workflow source.' }
+      - uses: actions/create-github-app-token@v2
+        id: read
+        with:
+          app-id: ${{ vars.WSS_GITHUB_APP_ID }}
+          private-key: ${{ secrets.WSS_GITHUB_APP_PRIVATE_KEY }}
+          owner: cwru-non-academic
+          repositories: |
+            WSSCore
+            Matlab_WSS_Integration_Lib
+            CLI_Matlab_WSS_Application
+          permission-contents: read
+          permission-actions: read
+      - uses: actions/checkout@v4
+        with:
+          repository: cwru-non-academic/Matlab_WSS_Integration_Lib
+          ref: ${{ inputs.wrapper_sha }}
+          path: wrapper
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: cwru-non-academic/CLI_Matlab_WSS_Application
+          ref: ${{ inputs.cli_sha }}
+          path: cli
+          persist-credentials: false
+      - name: Validate immutable producer and stage exact DLL projection
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ steps.read.outputs.token }}
+          CANDIDATE_JSON: ${{ inputs.candidate_json }}
+          WRAPPER_SHA: ${{ inputs.wrapper_sha }}
+          CLI_SHA: ${{ inputs.cli_sha }}
+        run: |
+          ./wrapper/.github/scripts/Prepare-MatlabPreflight.ps1 -Role wrapper -WrapperRoot "$env:GITHUB_WORKSPACE/wrapper" -CliRoot "$env:GITHUB_WORKSPACE/cli" -WorkRoot "$env:RUNNER_TEMP/matlab-preflight" -CandidateJson $env:CANDIDATE_JSON -WrapperSha $env:WRAPPER_SHA -CliSha $env:CLI_SHA
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build existing managed tick host
+        shell: pwsh
+        run: |
+          dotnet build "$env:MATLAB_PREFLIGHT_ROOT/managed/Wss.Matlab.Managed.csproj" -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Managed host build failed.' }
+      - uses: matlab-actions/setup-matlab@v3
+        with:
+          release: R2026b
+      - name: Run actual native MATLAB production candidate tests
+        uses: matlab-actions/run-command@v3
+        with:
+          command: addpath(fullfile(getenv('MATLAB_PREFLIGHT_ROOT'),'ci')); runWrapperCi('behavioral');
+      - name: Bind native results to the exact candidate and sources
+        shell: pwsh
+        run: ./wrapper/.github/scripts/Complete-MatlabPreflight.ps1 -WorkRoot "$env:RUNNER_TEMP/matlab-preflight"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: matlab-preflight-evidence
+          path: ${{ runner.temp }}/matlab-preflight/evidence/
+          if-no-files-found: error
+          retention-days: 14
+  compatibility:
+    name: Preflight compatibility (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: Windows, os: windows-latest}
+          - {name: Ubuntu, os: ubuntu-latest}
+          - {name: macOS, os: macos-latest}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          persist-credentials: false
+      - name: Require approved baseline and trusted dev event
+        shell: pwsh
+        run: |
+          $config=Get-Content source/.github/matlab-ci.json -Raw | ConvertFrom-Json
+          if (!$config.baseline_ready -or $env:GITHUB_REF -cne 'refs/heads/dev' -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch') { throw 'Native candidate activation remains pending.' }
+      - name: Validate source refs before checking out or executing nominated source
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WRAPPER_SHA: ${{ inputs.wrapper_sha }}
+          CLI_SHA: ${{ inputs.cli_sha }}
+        run: |
+          foreach ($pair in @(@('Matlab_WSS_Integration_Lib',$env:WRAPPER_SHA),@('CLI_Matlab_WSS_Application',$env:CLI_SHA))) {
+            if ($pair[1] -cnotmatch '^[0-9a-f]{40}$') { throw 'Full source SHA required.' }
+            $actual=gh api "repos/cwru-non-academic/$($pair[0])/branches/dev" --jq '.commit.sha'
+            if ($LASTEXITCODE -ne 0 -or $actual -cne $pair[1]) { throw 'Nominated source is not current trusted dev.' }
+          }
+          $own=if ('wrapper' -ceq 'wrapper') { $env:WRAPPER_SHA } else { $env:CLI_SHA }
+          if ($own -cne $env:GITHUB_SHA) { throw 'Own source differs from workflow source.' }
+      - uses: actions/create-github-app-token@v2
+        id: read
+        with:
+          app-id: ${{ vars.WSS_GITHUB_APP_ID }}
+          private-key: ${{ secrets.WSS_GITHUB_APP_PRIVATE_KEY }}
+          owner: cwru-non-academic
+          repositories: |
+            WSSCore
+            Matlab_WSS_Integration_Lib
+            CLI_Matlab_WSS_Application
+          permission-contents: read
+          permission-actions: read
+      - uses: actions/checkout@v4
+        with:
+          repository: cwru-non-academic/Matlab_WSS_Integration_Lib
+          ref: ${{ inputs.wrapper_sha }}
+          path: wrapper
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: cwru-non-academic/CLI_Matlab_WSS_Application
+          ref: ${{ inputs.cli_sha }}
+          path: cli
+          persist-credentials: false
+      - name: Validate immutable producer and stage exact DLL projection
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ steps.read.outputs.token }}
+          CANDIDATE_JSON: ${{ inputs.candidate_json }}
+          WRAPPER_SHA: ${{ inputs.wrapper_sha }}
+          CLI_SHA: ${{ inputs.cli_sha }}
+        run: |
+          ./wrapper/.github/scripts/Prepare-MatlabPreflight.ps1 -Role wrapper -WrapperRoot "$env:GITHUB_WORKSPACE/wrapper" -CliRoot "$env:GITHUB_WORKSPACE/cli" -WorkRoot "$env:RUNNER_TEMP/matlab-preflight" -CandidateJson $env:CANDIDATE_JSON -WrapperSha $env:WRAPPER_SHA -CliSha $env:CLI_SHA
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build existing managed tick host
+        shell: pwsh
+        run: |
+          dotnet build "$env:MATLAB_PREFLIGHT_ROOT/managed/Wss.Matlab.Managed.csproj" -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Managed host build failed.' }
+      - uses: matlab-actions/setup-matlab@v3
+        with:
+          release: R2026b
+      - name: Run distinct native platform loading checks
+        uses: matlab-actions/run-command@v3
+        with:
+          command: addpath(fullfile(getenv('MATLAB_PREFLIGHT_ROOT'),'ci')); runWrapperCi('compatibility');
+      - uses: actions/upload-artifact@v4
+        with:
+          name: matlab-preflight-compatibility-${{ matrix.name }}
+          path: ${{ env.MATLAB_PREFLIGHT_ROOT }}/artifacts/ci/compatibility.json
+          if-no-files-found: error
+          retention-days: 14

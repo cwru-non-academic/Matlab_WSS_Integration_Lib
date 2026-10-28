@@ -1,0 +1,68 @@
+name: Dispatch MATLAB CLI promotion
+run-name: Dispatch MATLAB CLI promotion for ${{ github.event.pull_request.merge_commit_sha }}
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [dev]
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+concurrency:
+  group: matlab-dispatch-${{ github.event.pull_request.merge_commit_sha || github.run_id }}
+  cancel-in-progress: false
+jobs:
+  dispatch:
+    if: >-
+      vars.WSS_MATLAB_PROPAGATION_ENABLED == 'true' &&
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.type == 'Bot' &&
+      startsWith(github.event.pull_request.head.ref, 'automation/matlab-wss-')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Require approved native baseline
+        shell: pwsh
+        run: |
+          $config=Get-Content .github/matlab-ci.json -Raw | ConvertFrom-Json
+          if (!$config.baseline_ready) { throw 'Candidate promotion activation remains pending.' }
+      - uses: actions/create-github-app-token@v2
+        id: read
+        with:
+          app-id: ${{ vars.WSS_GITHUB_APP_ID }}
+          private-key: ${{ secrets.WSS_GITHUB_APP_PRIVATE_KEY }}
+          owner: cwru-non-academic
+          repositories: |
+            WSSCore
+            Matlab_WSS_Integration_Lib
+            CLI_Matlab_WSS_Application
+          permission-contents: read
+          permission-actions: read
+          permission-pull-requests: read
+      - name: Verify actual reviewed wrapper merge, candidate proof, full normal CI and no-op
+        id: validate
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ steps.read.outputs.token }}
+        run: ./.github/scripts/Dispatch-MatlabCli.ps1 -EventPath $env:GITHUB_EVENT_PATH -WorkRoot "$env:RUNNER_TEMP/matlab-dispatch" -ValidateOnly
+      - uses: actions/create-github-app-token@v2
+        if: steps.validate.outputs.dispatch_needed == 'true'
+        id: dispatch
+        with:
+          app-id: ${{ vars.WSS_GITHUB_APP_ID }}
+          private-key: ${{ secrets.WSS_GITHUB_APP_PRIVATE_KEY }}
+          owner: cwru-non-academic
+          repositories: CLI_Matlab_WSS_Application
+          permission-actions: write
+      - name: Dispatch once; inspect uncertain outcomes before retry
+        if: steps.validate.outputs.dispatch_needed == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ steps.dispatch.outputs.token }}
+        run: |
+          gh api --method POST repos/cwru-non-academic/CLI_Matlab_WSS_Application/actions/workflows/promote-integration.yml/dispatches --input "$env:RUNNER_TEMP/matlab-dispatch/cli-dispatch.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Dispatch failed or uncertain; inspect before replay.' }
