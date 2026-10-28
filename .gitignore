@@ -1,0 +1,16 @@
+# MATLAB autosave, generated code and local session files
+*.asv
+*.m~
+*.mexw64
+slprj/
+codegen/
+matlab.prf
+# .NET helper build outputs and test evidence
+bin/
+obj/
+TestResults/
+artifacts/
+logs/
+*.log
+.DS_Store
+Thumbs.db

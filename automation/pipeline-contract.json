@@ -1,0 +1,12 @@
+{
+  "schema": "wss-matlab-propagation/v1",
+  "enabled": false,
+  "role": "integration-library",
+  "upstream": "cwru-non-academic/WSSCore",
+  "consumer": "cwru-non-academic/CLI_Matlab_WSS_Application",
+  "payload_directory": "Cs_Libraries",
+  "required_evidence": ["immutable-artifact-hashes", "managed-host-checks", "matlab-static-analysis", "matlab-wrapper-tests", "matlab-canonical-conformance", "matlab-busy-and-input-ticking"],
+  "delivery": "dev-pull-request",
+  "human_merge_required": true,
+  "auto_merge": false
+}

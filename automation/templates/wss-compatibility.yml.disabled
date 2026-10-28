@@ -1,0 +1,51 @@
+# INACTIVE TEMPLATE: deliberately outside .github/workflows, and every job is disabled.
+# Remove guards only after the activation checklist and GitHub App/runner review.
+name: WSS integration compatibility
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  behavioral-tests:
+    if: ${{ false }}
+    name: Integration behavioral tests
+    runs-on: [self-hosted, Windows, X64, matlab-r2026b]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build and verify managed host
+        shell: pwsh
+        run: |
+          dotnet run --project tests/managed/ManagedHostChecks.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Managed host checks failed.' }
+      - name: Run MATLAB behavioral and shared Core conformance checks
+        shell: pwsh
+        run: |
+          matlab -batch "dotnetenv('core',Version='8'); addpath('src','conformance'); assertSuccess(runtests('tests')); runConformance();"
+          if ($LASTEXITCODE -ne 0) { throw 'MATLAB behavioral checks failed.' }
+  compatibility:
+    if: ${{ false }}
+    name: Integration compatibility (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            runner: Windows
+          - name: Ubuntu
+            runner: Linux
+          - name: macOS
+            runner: macOS
+    runs-on: [self-hosted, '${{ matrix.runner }}', matlab-r2026b]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify payload/runtime loading through production MATLAB wrapper
+        shell: pwsh
+        run: |
+          dotnet build managed/Wss.Matlab.Managed.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Managed host build failed.' }
+          matlab -batch "dotnetenv('core',Version='8'); addpath('src','conformance'); checkCompatibility();"
+          if ($LASTEXITCODE -ne 0) { throw 'MATLAB compatibility checks failed.' }
