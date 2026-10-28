@@ -1,7 +1,8 @@
 # Future Core and application propagation
 
-Automation remains inactive. There are no active Actions workflows or dispatch
-handlers in this initial MATLAB setup. `automation/pipeline-contract.json`
+Core propagation remains inactive. Ordinary PR CI is separate and documented in
+`ci/README.md`; there are no Core promotion or dispatch handlers.
+`automation/pipeline-contract.json`
 records the intended ownership boundary; adding GitHub App access alone must not
 activate it.
 

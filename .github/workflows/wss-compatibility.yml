@@ -1,0 +1,75 @@
+name: WSS integration compatibility
+on:
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  behavioral-tests:
+    name: Integration behavioral tests
+    runs-on: ${{ vars.WSS_MATLAB_WINDOWS_RUNNER && fromJSON(vars.WSS_MATLAB_WINDOWS_RUNNER) || 'windows-latest' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require a licensed MATLAB/.NET runner
+        shell: pwsh
+        run: ./ci/Assert-MatlabCiPrerequisites.ps1 -Platform Windows
+      - name: Verify managed tick host
+        shell: pwsh
+        run: |
+          dotnet run --project tests/managed/ManagedHostChecks.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Managed host checks failed.' }
+      - name: Run production MATLAB behavior and canonical Core scenarios
+        shell: pwsh
+        run: |
+          matlab -batch "addpath('ci'); runWrapperCi('behavioral');"
+          if ($LASTEXITCODE -ne 0) { throw 'MATLAB behavioral checks failed.' }
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && runner.environment == 'self-hosted' }}
+        with:
+          name: ${{ github.job }}-${{ matrix.name || 'general' }}
+          path: artifacts/ci/
+          if-no-files-found: warn
+  compatibility:
+    name: Integration compatibility (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            runner: ${{ vars.WSS_MATLAB_WINDOWS_RUNNER }}
+          - name: Ubuntu
+            os: ubuntu-latest
+            runner: ${{ vars.WSS_MATLAB_UBUNTU_RUNNER }}
+          - name: macOS
+            os: macos-latest
+            runner: ${{ vars.WSS_MATLAB_MACOS_RUNNER }}
+    runs-on: ${{ matrix.runner && fromJSON(matrix.runner) || matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require a licensed MATLAB/.NET runner
+        shell: pwsh
+        run: ./ci/Assert-MatlabCiPrerequisites.ps1 -Platform '${{ matrix.name }}'
+      - name: Build the committed wrapper host
+        shell: pwsh
+        run: |
+          dotnet build managed/Wss.Matlab.Managed.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Managed host build failed.' }
+      - name: Verify platform serial and BLE loading separately from behavior
+        shell: pwsh
+        run: |
+          matlab -batch "addpath('ci'); runWrapperCi('compatibility');"
+          if ($LASTEXITCODE -ne 0) { throw 'MATLAB compatibility checks failed.' }
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && runner.environment == 'self-hosted' }}
+        with:
+          name: ${{ github.job }}-${{ matrix.name || 'general' }}
+          path: artifacts/ci/
+          if-no-files-found: warn
