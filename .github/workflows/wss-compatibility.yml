@@ -17,6 +17,46 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+      - name: Verify managed tick host
+        shell: pwsh
+        run: |
+          dotnet run --project tests/managed/ManagedHostChecks.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Managed host checks failed.' }
+      - name: Set up MATLAB using normal public-project licensing
+        uses: matlab-actions/setup-matlab@v3
+        with:
+          release: R2026b
+      - name: Run production MATLAB behavior and canonical Core scenarios
+        uses: matlab-actions/run-command@v3
+        with:
+          command: addpath('ci'); runWrapperCi('behavioral');
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wrapper-behavioral-evidence
+          path: artifacts/ci/
+          if-no-files-found: warn
+  compatibility:
+    name: Integration compatibility (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+          - name: Ubuntu
+            os: ubuntu-latest
+          - name: macOS
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
       - name: Build the committed wrapper host
         shell: pwsh
         run: |
@@ -26,7 +66,13 @@ jobs:
         uses: matlab-actions/setup-matlab@v3
         with:
           release: R2026b
-      - name: Load existing Core DLL directly from native MATLAB tests
+      - name: Verify platform serial and BLE loading separately from behavior
         uses: matlab-actions/run-command@v3
         with:
-          command: dotnetenv('core', Version='8'); addpath('src'); results = runtests('tests/TestManagedRuntime.m'); assertSuccess(results);
+          command: addpath('ci'); runWrapperCi('compatibility');
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wrapper-compatibility-${{ matrix.name }}-evidence
+          path: artifacts/ci/
+          if-no-files-found: warn
