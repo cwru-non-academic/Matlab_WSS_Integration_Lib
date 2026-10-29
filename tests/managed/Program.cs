@@ -63,6 +63,14 @@ try
     try { failedTickHost.Call("Command", new object[] { 5 }); throw new Exception("Call ignored tick failure."); }
     catch (InvalidOperationException error) when (error.InnerException?.Message == "tick failure") { }
     Console.WriteLine("PASS tick failure propagation and stop attempt");
+
+    // Read a temporary config through the shipped DLL, without a transport.
+    string receiverConfig = Path.Combine(root, "receiver-config.json");
+    File.WriteAllText(receiverConfig, "{\"maxWSS\":1,\"firmware\":\"H03\",\"broadcastTarget\":\"0x8F\",\"wssTargets\":[\"0x80\",\"0x82\",\"0x83\"]}");
+    var receiver = new Wss.CoreModule.CoreConfigController(receiverConfig);
+    Check(receiver.BroadcastTarget == 0x8F && receiver.WssTargets.SequenceEqual(new byte[] { 0x80, 0x82, 0x83 }),
+        "The shipped Core ignored the explicitly selected receiver address.");
+    Console.WriteLine("PASS explicit receiver0x80 through shipped Core configuration");
 }
 finally { Directory.Delete(root, recursive: true); }
 
