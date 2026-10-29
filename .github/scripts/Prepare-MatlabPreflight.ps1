@@ -14,7 +14,7 @@ $source=if ($Role -ceq 'wrapper') { $WrapperSha } else { $CliSha }
 $repository=if ($Role -ceq 'wrapper') { $MatlabWrapperRepository } else { $MatlabCliRepository }
 if ($env:GITHUB_REPOSITORY -cne $repository -or $env:GITHUB_SHA -cne $source) { throw 'Workflow/source identity mismatch.' }
 $config=Read-MatlabConfig (Join-Path $own '.github/matlab-ci.json')
-if (!$config.baseline_ready) { throw 'Candidate baseline activation remains pending.' }
+if ($config.candidate_preflight_ready -cne $true) { throw 'Read-only candidate preflight approval remains pending; promotion is separate.' }
 Assert-MatlabSource $WrapperRoot $WrapperSha
 Assert-MatlabSource $CliRoot $CliSha -IgnoreSubmodule
 if ((Get-MatlabHead $MatlabWrapperRepository) -cne $WrapperSha -or (Get-MatlabHead $MatlabCliRepository) -cne $CliSha) { throw 'Source dev advanced before candidate validation.' }
@@ -31,7 +31,11 @@ $suiteHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text
 if ($suiteHash -cne $config.fixture_sha256) { throw 'Native canonical suite differs from the reviewed baseline.' }
 $projection=New-MatlabProjection (Join-Path $WorkRoot 'resolved/extracted/WSS-Universal') $WrapperRoot (Join-Path $WorkRoot 'projection') $candidate
 $projection | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $WorkRoot 'projection.json')
-foreach ($file in $MatlabProjectionFiles) { Copy-Item -LiteralPath (Join-Path $WorkRoot "projection/$file") -Destination (Join-Path $WrapperRoot "$MatlabPluginPath/$file") }
+foreach ($file in $MatlabProjectionFiles) {
+    $target=Join-Path $WrapperRoot "$MatlabPluginPath/$file"
+    $null=New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target)
+    Copy-Item -LiteralPath (Join-Path $WorkRoot "projection/$file") -Destination $target
+}
 Assert-MatlabProjection (Join-Path $WrapperRoot $MatlabPluginPath) $projection
 # App tests use their real default submodule path, staged from an exact source checkout.
 # Never rewrite the CLI index/gitlink: this disposable worktree change is validation only.

@@ -26,7 +26,7 @@ jobs:
         shell: pwsh
         run: |
           $config=Get-Content source/.github/matlab-ci.json -Raw | ConvertFrom-Json
-          if (!$config.baseline_ready -or $env:GITHUB_REF -cne 'refs/heads/dev' -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch') { throw 'Native candidate activation remains pending.' }
+          if ($config.candidate_preflight_ready -cne $true -or $env:GITHUB_REF -cne 'refs/heads/dev' -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch') { throw 'Read-only native candidate preflight approval remains pending; promotion is separate.' }
       - name: Validate source refs before checking out or executing nominated source
         shell: pwsh
         env:
@@ -118,7 +118,7 @@ jobs:
         shell: pwsh
         run: |
           $config=Get-Content source/.github/matlab-ci.json -Raw | ConvertFrom-Json
-          if (!$config.baseline_ready -or $env:GITHUB_REF -cne 'refs/heads/dev' -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch') { throw 'Native candidate activation remains pending.' }
+          if ($config.candidate_preflight_ready -cne $true -or $env:GITHUB_REF -cne 'refs/heads/dev' -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch') { throw 'Read-only native candidate preflight approval remains pending; promotion is separate.' }
       - name: Validate source refs before checking out or executing nominated source
         shell: pwsh
         env:
