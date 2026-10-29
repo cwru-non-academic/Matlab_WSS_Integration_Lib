@@ -9,6 +9,7 @@ classdef StimulationController < handle
         BasicSupported
         TickCount
         LastTickError
+        LastCoreError
     end
     properties (Access = private)
         Host = []
@@ -70,6 +71,11 @@ classdef StimulationController < handle
         function value = get.LastTickError(obj)
             value = '';
             if ~isempty(obj.Host), value = char(obj.Host.LastTickError); end
+        end
+        function value = get.LastCoreError(obj)
+            % Core logging is process-wide; this is diagnostic evidence only.
+            value = '';
+            if ~isempty(obj.Host), value = char(obj.Host.LastCoreError); end
         end
         function value = Ready(obj)
             value = ~isempty(obj.Host) && logical(obj.call('Ready'));

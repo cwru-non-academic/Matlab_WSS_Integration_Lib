@@ -67,6 +67,16 @@ Windows/Linux BLE loading; macOS BLE requires the newer Core MacOS backend and
 native bridge. A missing selected backend raises `wss:MissingBleBackend`. Construction alone never opens a transport. All development checks use
 the emulator or managed probes; no hardware execution has been performed.
 
+## Device addresses
+
+The reusable `Config/stimConfig.json` example explicitly exposes Core's historical
+`broadcastTarget` (`0x8F`) and `wssTargets` (`0x81`, `0x82`, `0x83`) defaults.
+Applications supply their own config and device-specific receiver addresses; the
+C# CLI example selects `0x80` for its first device. These are receiver settings.
+The low-level host sender byte is not a supported Core JSON property.
+Restart/reinitialize the controller after editing addresses so its client receives
+the selected map.
+
 ## Public surface and lifecycle
 
 The facade preserves Python names such as `Initialize`, `Shutdown`, `Ready`,
@@ -92,8 +102,12 @@ depending on MATLAB sampling a short asynchronous state transition.
 Use `onCleanup` before `Initialize` so normal errors and Ctrl+C unwind through
 `Shutdown`. Shutdown waits for in-flight managed work, then attempts broadcast
 stop, shutdown and disposal. It is idempotent. Forced process termination cannot
-run cleanup. The log path currently receives managed-host lifecycle/error
-diagnostics; Core's own default sink is unchanged. Config controllers returned by
+run cleanup. The log path receives managed-host lifecycle/tick errors and
+Core log messages without MATLAB callbacks; Core's default sink is unchanged.
+`LastCoreError` exposes the latest captured Core error, which can explain failed
+async connection/setup even when `Tick` did not throw. Core logging is
+process-wide, so with multiple controllers an entry does not identify which
+controller failed. Config controllers returned by
 `GetCoreConfigCTRL`/`GetModelConfigCTRL` are raw managed objects; callers must not
 mutate them concurrently with ticking.
 
