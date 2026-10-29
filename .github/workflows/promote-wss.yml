@@ -1,0 +1,96 @@
+name: Promote WSS into Integration
+run-name: Promote universal WSS / wss-${{ fromJSON(inputs.candidate_json).run_id }}-${{ fromJSON(inputs.candidate_json).artifact_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_json: {description: Exact canonical Core dev producer tuple, required: true, type: string}
+permissions:
+  contents: read
+concurrency:
+  group: matlab-promote-wrapper-dev
+  cancel-in-progress: false
+jobs:
+  promote:
+    if: vars.WSS_MATLAB_PROPAGATION_ENABLED == 'true'
+    name: Create verified dependency PR
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require enabled baseline and trusted dev workflow
+        shell: pwsh
+        run: |
+          $config=Get-Content source/.github/matlab-ci.json -Raw | ConvertFrom-Json
+          if (!$config.baseline_ready -or $env:GITHUB_REF -cne 'refs/heads/dev' -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch') { throw 'Native candidate promotion activation remains pending.' }
+      - uses: actions/create-github-app-token@v2
+        id: read
+        with:
+          app-id: ${{ vars.WSS_GITHUB_APP_ID }}
+          private-key: ${{ secrets.WSS_GITHUB_APP_PRIVATE_KEY }}
+          owner: cwru-non-academic
+          repositories: |
+            WSSCore
+            Matlab_WSS_Integration_Lib
+            CLI_Matlab_WSS_Application
+          permission-contents: read
+          permission-actions: read
+          permission-pull-requests: read
+      - name: Validate producer and no-op before dispatch credentials
+        id: candidate
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ steps.read.outputs.token }}
+          CANDIDATE_JSON: ${{ inputs.candidate_json }}
+        run: ./source/.github/scripts/Prepare-MatlabPromotion.ps1 -Role wrapper -RepositoryRoot "$env:GITHUB_WORKSPACE/source" -WorkRoot "$env:RUNNER_TEMP/matlab-validation" -CandidateJson $env:CANDIDATE_JSON -ValidateOnly
+      - uses: actions/create-github-app-token@v2
+        if: steps.candidate.outputs.no_op == 'false'
+        id: preflight
+        with:
+          app-id: ${{ vars.WSS_GITHUB_APP_ID }}
+          private-key: ${{ secrets.WSS_GITHUB_APP_PRIVATE_KEY }}
+          owner: cwru-non-academic
+          repositories: |
+            Matlab_WSS_Integration_Lib
+            CLI_Matlab_WSS_Application
+          permission-actions: write
+      - name: Require exact source-bound native preflights
+        id: prepare
+        if: steps.candidate.outputs.no_op == 'false'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ steps.read.outputs.token }}
+          MATLAB_PREFLIGHT_TOKEN: ${{ steps.preflight.outputs.token }}
+          CANDIDATE_JSON: ${{ inputs.candidate_json }}
+        run: ./source/.github/scripts/Prepare-MatlabPromotion.ps1 -Role wrapper -RepositoryRoot "$env:GITHUB_WORKSPACE/source" -WorkRoot "$env:RUNNER_TEMP/matlab-promotion" -CandidateJson $env:CANDIDATE_JSON
+      - uses: actions/create-github-app-token@v2
+        if: steps.prepare.outputs.no_op == 'false'
+        id: write
+        with:
+          app-id: ${{ vars.WSS_GITHUB_APP_ID }}
+          private-key: ${{ secrets.WSS_GITHUB_APP_PRIVATE_KEY }}
+          owner: cwru-non-academic
+          repositories: Matlab_WSS_Integration_Lib
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Create or reuse exact constrained PR; never merge
+        if: steps.prepare.outputs.no_op == 'false'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ steps.read.outputs.token }}
+          MATLAB_PUSH_TOKEN: ${{ steps.write.outputs.token }}
+        run: ./source/.github/scripts/Publish-MatlabPromotion.ps1 -RepositoryRoot "$env:GITHUB_WORKSPACE/source" -WorkRoot "$env:RUNNER_TEMP/matlab-promotion"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: matlab-promotion-record
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/matlab-promotion/approval.json
+            ${{ runner.temp }}/matlab-promotion/prepared.json
+            ${{ runner.temp }}/matlab-promotion/projection.json
+            ${{ runner.temp }}/matlab-validation/prepared.json
