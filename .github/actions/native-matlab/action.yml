@@ -1,0 +1,63 @@
+name: Native MATLAB validation
+description: Reuse the production MATLAB CI entrypoints with the existing runtime versions.
+inputs:
+  root:
+    description: Existing source root within the workflow workspace
+    required: true
+  role:
+    description: wrapper or cli
+    required: true
+  purpose:
+    description: behavioral/general or compatibility
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Validate native source and purpose
+      id: paths
+      shell: pwsh
+      env:
+        NATIVE_ROOT: ${{ inputs.root }}
+        NATIVE_ROLE: ${{ inputs.role }}
+        NATIVE_PURPOSE: ${{ inputs.purpose }}
+      run: |
+        $ErrorActionPreference='Stop'
+        $workspace=[IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
+        $root=if ([IO.Path]::IsPathRooted($env:NATIVE_ROOT)) { [IO.Path]::GetFullPath($env:NATIVE_ROOT) } else { [IO.Path]::GetFullPath((Join-Path $workspace $env:NATIVE_ROOT)) }
+        if (![IO.Path]::IsPathRooted($root) -or ![IO.Directory]::Exists($root) -or
+            ($root -cne $workspace -and !$root.StartsWith($workspace+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase))) { throw 'Native source must remain inside the workflow workspace.' }
+        if ($env:NATIVE_ROLE -cnotin @('wrapper','cli')) { throw 'Unknown native role.' }
+        $behavior=if ($env:NATIVE_ROLE -ceq 'wrapper') { 'behavioral' } else { 'general' }
+        if ($env:NATIVE_PURPOSE -cnotin @($behavior,'compatibility')) { throw 'Wrong native validation purpose.' }
+        $hostRoot=if ($env:NATIVE_ROLE -ceq 'wrapper') { $root } else { Join-Path $root 'external/wss-matlab-wrapper' }
+        "root=$root" >> $env:GITHUB_OUTPUT
+        "host=$hostRoot" >> $env:GITHUB_OUTPUT
+    - uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+    - name: Build the selected existing managed tick host
+      shell: pwsh
+      env:
+        HOST_ROOT: ${{ steps.paths.outputs.host }}
+      run: |
+        dotnet build "$env:HOST_ROOT/managed/Wss.Matlab.Managed.csproj" -c Release
+        if ($LASTEXITCODE -ne 0) { throw 'Managed tick host build failed.' }
+    - name: Verify managed lifecycle and independent ticking
+      if: inputs.role == 'wrapper' && inputs.purpose == 'behavioral'
+      shell: pwsh
+      env:
+        HOST_ROOT: ${{ steps.paths.outputs.host }}
+      run: |
+        dotnet run --project "$env:HOST_ROOT/tests/managed/ManagedHostChecks.csproj" -c Release
+        if ($LASTEXITCODE -ne 0) { throw 'Managed tick host checks failed.' }
+    - uses: matlab-actions/setup-matlab@v3
+      with:
+        release: R2026b
+    - name: Run native production MATLAB checks
+      uses: matlab-actions/run-command@v3
+      env:
+        WSS_CI_ROOT: ${{ steps.paths.outputs.root }}
+        WSS_CI_ROLE: ${{ inputs.role }}
+        WSS_CI_PURPOSE: ${{ inputs.purpose }}
+      with:
+        command: addpath(fullfile(getenv('WSS_CI_ROOT'),'ci')); if strcmp(getenv('WSS_CI_ROLE'),'wrapper'), runWrapperCi(getenv('WSS_CI_PURPOSE')); else, runCliCi(getenv('WSS_CI_PURPOSE')); end

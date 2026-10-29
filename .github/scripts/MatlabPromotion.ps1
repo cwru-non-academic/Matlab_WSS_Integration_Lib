@@ -305,5 +305,18 @@ function Get-MatlabEvidence([string]$Repository,[string]$RunId,[string]$SourceSh
     if ($projection.bootstrap_reference -cne $false -or $projection.schema -cne 'wss-matlab-projection/v1' -or
         $projection.files.Count -ne $MatlabProjectionFiles.Count -or @(Compare-Object $MatlabProjectionFiles @($projection.files.source) -CaseSensitive).Count -or
         (Get-MatlabProjectionDigest $projection.files) -cne $e.projection_sha256 -or $projection.projection_sha256 -cne $e.projection_sha256) { throw 'Projection/evidence mismatch.' }
+    $normalizedRoot=Join-Path $Root 'normalized'
+    $null=Invoke-MatlabGh @('run','download',$RunId,'--repo',$Repository,'--name','wss-candidate-provenance','--dir',$normalizedRoot)
+    $normalizedFiles=@(Get-ChildItem -LiteralPath $normalizedRoot -Force)
+    if ($normalizedFiles.Count -ne 1 -or $normalizedFiles[0].PSIsContainer -or $normalizedFiles[0].Name -cne 'candidate.json') { throw 'Normalized evidence must contain exactly candidate.json.' }
+    $normalized=Get-Content (Join-Path $normalizedRoot 'candidate.json') -Raw | ConvertFrom-Json
+    Assert-MatlabSameCandidate $normalized $Candidate
+    if (@($normalized.PSObject.Properties).Count -ne 6) { throw 'Normalized candidate must contain only the six producer fields.' }
+    $macRoot=Join-Path $Root 'packaged-macos'
+    $null=Invoke-MatlabGh @('run','download',$RunId,'--repo',$Repository,'--name','matlab-preflight-compatibility-macOS','--dir',$macRoot)
+    $macFiles=@(Get-ChildItem -LiteralPath $macRoot -Force)
+    if ($macFiles.Count -ne 1 -or $macFiles[0].PSIsContainer -or $macFiles[0].Name -cne 'compatibility.json') { throw 'Packaged macOS proof is incomplete.' }
+    $mac=Get-Content (Join-Path $macRoot 'compatibility.json') -Raw | ConvertFrom-Json
+    if ($mac.Serial -cne 'passed' -or $mac.Ble -cne 'passed' -or $mac.Backend -cne 'WSS.Transport.BLE.MacOS' -or $mac.Platform -cnotin @('MACA64','MACI64')) { throw 'Candidate did not verify packaged macOS BLE loading.' }
     $e
 }
