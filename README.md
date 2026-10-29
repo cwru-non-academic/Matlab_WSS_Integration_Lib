@@ -92,8 +92,12 @@ depending on MATLAB sampling a short asynchronous state transition.
 Use `onCleanup` before `Initialize` so normal errors and Ctrl+C unwind through
 `Shutdown`. Shutdown waits for in-flight managed work, then attempts broadcast
 stop, shutdown and disposal. It is idempotent. Forced process termination cannot
-run cleanup. The log path currently receives managed-host lifecycle/error
-diagnostics; Core's own default sink is unchanged. Config controllers returned by
+run cleanup. The log path receives managed-host lifecycle/tick errors and
+Core log messages without MATLAB callbacks; Core's default sink is unchanged.
+`LastCoreError` exposes the latest captured Core error, which can explain failed
+async connection/setup even when `Tick` did not throw. Core logging is
+process-wide, so with multiple controllers an entry does not identify which
+controller failed. Config controllers returned by
 `GetCoreConfigCTRL`/`GetModelConfigCTRL` are raw managed objects; callers must not
 mutate them concurrently with ticking.
 

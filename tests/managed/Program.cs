@@ -31,6 +31,29 @@ try
     failedHost.Dispose();
     Check(broken.Disposals == 1 && broken.Shutdowns == 1, "Failed initialization leaked the stack.");
     Console.WriteLine("PASS failed initialization cleanup");
+    string failedLength = File.ReadAllText(Path.Combine(root, "failed.log"));
+    Check(failedLength.Contains("synthetic-initialization-failure"), "Initialization Core error was not captured.");
+    Wss.CoreModule.Log.Error("after-failed-initialization");
+    Check(File.ReadAllText(Path.Combine(root, "failed.log")) == failedLength,
+        "Failed initialization left a Core log subscription attached.");
+
+    string diagnosticPath = Path.Combine(root, "core.log");
+    var diagnosticHost = new ControllerHost(new Probe(), 1, diagnosticPath);
+    diagnosticHost.Initialize();
+    Check(Task.Run(() => Wss.CoreModule.Log.Error("synthetic-connect-failure")).Wait(3000),
+        "Background Core logging did not complete.");
+    Check(diagnosticHost.LastCoreError == "synthetic-connect-failure" &&
+        File.ReadAllText(diagnosticPath).Contains("Core (process-wide) Error: synthetic-connect-failure"),
+        "Core error reported without a Tick exception was not captured.");
+    Check(diagnosticHost.LastTickError.Length == 0,
+        "A Core diagnostic must not be presented as a thrown tick failure.");
+    diagnosticHost.Dispose();
+    string disposedLog = File.ReadAllText(diagnosticPath);
+    Wss.CoreModule.Log.Error("after-disposal");
+    Check(File.ReadAllText(diagnosticPath) == disposedLog,
+        "Disposed host still received Core diagnostics.");
+    Console.WriteLine("PASS background Core error capture and subscription cleanup");
+
 
     var tickBroken = new Probe { FailTick = true };
     using var failedTickHost = new ControllerHost(tickBroken, 1, Path.Combine(root, "tick.log"));
@@ -63,7 +86,11 @@ public sealed class Probe
     public void Initialize()
     {
         Initializations++;
-        if (FailInitialize) throw new InvalidOperationException("initialize failure");
+        if (FailInitialize)
+        {
+            Wss.CoreModule.Log.Error("synthetic-initialization-failure");
+            throw new InvalidOperationException("initialize failure");
+        }
     }
     public void Tick()
     {

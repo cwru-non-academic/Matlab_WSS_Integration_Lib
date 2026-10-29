@@ -18,6 +18,7 @@ verifyFalse(testCase, controller.Ready());
 verifyFalse(testCase, controller.Started());
 verifyFalse(testCase, controller.BasicSupported);
 verifyEqual(testCase, controller.TickCount, 0);
+verifyEmpty(testCase, controller.LastCoreError);
 controller.resetRadio();
 verifyFalse(testCase, controller.Ready());
 verifyEqual(testCase, controller.TickCount, 0);
