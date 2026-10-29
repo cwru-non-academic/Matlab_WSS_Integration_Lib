@@ -23,21 +23,11 @@ classdef StimulationController < handle
         end
         function Initialize(obj)
             if ~isempty(obj.Host), return; end
-            loadAssemblies(obj.Config);
             owned = [];
             host = [];
             try
                 c = obj.Config;
-                if c.ConformanceMode
-                    transport = Wss.Matlab.Managed.ObservedEmulatorTransport();
-                elseif c.TestMode
-                    transport = Wss.Transports.TestModeTransport(Wss.Transports.TestModeTransportOptions());
-                else
-                    options = Wss.Transports.SerialPortTransportOptions();
-                    options.PortName = c.SerialPort;
-                    options.AutoSelectPort = isempty(c.SerialPort);
-                    transport = Wss.Transports.SerialPortTransport(options);
-                end
+                transport = wss.createTransport(c);
                 owned = transport;
                 options = Wss.CoreModule.WssStimulationCoreOptions();
                 options.ConfigPath = c.ConfigPath;
