@@ -36,6 +36,12 @@ try {
     $files=@($MatlabProjectionFiles | ForEach-Object { @{source=$_;sha256=(Get-FileHash (Join-Path $directory $_)).Hash.ToLowerInvariant()} })
     $record=[pscustomobject]@{schema='wss-matlab-projection/v1';bootstrap_reference=$false;candidate=$candidate;files=$files;projection_sha256=(Get-MatlabProjectionDigest $files)}
     Assert-MatlabProjection $directory $record
+    $oldFiles=@($record.files | Where-Object { $_.source -cnotlike 'backends/macos/*' })
+    $oldCandidate=[pscustomobject]@{schema=$record.schema;bootstrap_reference=$false;candidate=$candidate;files=$oldFiles;projection_sha256=(Get-MatlabProjectionDigest $oldFiles)}
+    $macFiles=@($MatlabProjectionFiles | Where-Object { $_ -clike 'backends/macos/*' })
+    foreach ($file in $macFiles) { Remove-Item -LiteralPath (Join-Path $directory $file) }
+    Assert-Rejected { Assert-MatlabProjection $directory $oldCandidate } 'new 25-file candidate omits macOS universal files'
+    foreach ($file in $macFiles) { [IO.File]::WriteAllText((Join-Path $directory $file), 'synthetic contract fixture: '+$file) }
     [IO.File]::WriteAllText((Join-Path $directory 'WSS_Core_Interface.dll'),'altered')
     Assert-Rejected { Assert-MatlabProjection $directory $record } 'changed DLL hash'
     [IO.File]::WriteAllText((Join-Path $directory 'WSS_Core_Interface.dll'),'synthetic contract fixture: WSS_Core_Interface.dll')
@@ -58,7 +64,7 @@ function Invoke-MatlabGh([string[]]$Arguments) {
     } elseif ($uri -like '*/compare/*') { @{status=$script:comparisonStatus} | ConvertTo-Json }
     elseif ($uri -like '*/branches/dev') { @{commit=@{sha=$script:coreHead}} | ConvertTo-Json -Depth 3 }
     elseif ($uri -like '*/jobs*') {
-        $names=@('Build and validate artifacts','Core conformance','Serial consumer (Windows)','Serial consumer (macOS)','Serial consumer (Linux)','BLE consumer (Windows)','BLE consumer (Linux)','Core consumer (Windows)','Core consumer (macOS)','Core consumer (Linux)','Start routine downstream validation')
+        $names=@('Build and validate artifacts','Core conformance','Serial consumer (Windows)','Serial consumer (macOS)','Serial consumer (Linux)','BLE consumer (Windows)','BLE consumer (Linux)','Build macOS universal BLE bridge','BLE consumer (macOS x86_64)','BLE consumer (macOS arm64)','Core consumer (Windows)','Core consumer (macOS)','Core consumer (Linux)','Start routine downstream validation')
         @(@{jobs=@($names | ForEach-Object { @{name=$_;conclusion=$script:producerJob} })}) | ConvertTo-Json -Depth 6 -AsArray
     } elseif ($uri -like '*/actions/artifacts/456') {
         @{expired=$script:artifactExpired;name='universal-release-assets';workflow_run=@{id='123';head_sha=$candidate.commit}} | ConvertTo-Json -Depth 4

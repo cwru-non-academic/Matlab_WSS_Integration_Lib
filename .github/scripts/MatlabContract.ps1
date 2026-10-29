@@ -12,6 +12,9 @@ function Get-MatlabApplication([ValidateSet('cli')][string]$Role) {
 $MatlabGitlink = 'external/wss-matlab-wrapper'
 $MatlabPluginPath = 'Cs_Libraries'
 $MatlabProjectionFiles = @($WssUniversalFiles)
+# Only the historical, explicitly identified bootstrap may retain the old 25 files.
+# Downloaded candidates and accepted promotions always require the full 27 files.
+$MatlabBootstrapProjectionFiles = @($WssUniversalFiles | Where-Object { $_ -cnotlike 'backends/macos/*' })
 
 function Invoke-MatlabGh([string[]]$Arguments) {
     $response = & gh @Arguments
@@ -48,10 +51,15 @@ function Get-MatlabProjectionDigest($Files) {
 }
 function Assert-MatlabProjection([string]$Root, $Record) {
     if ($Record.schema -cne 'wss-matlab-projection/v1') { throw 'Invalid Matlab payload schema.' }
-    if (!$Record.bootstrap_reference) { Assert-MatlabCandidate $Record.candidate }
+    $expected=$MatlabProjectionFiles
+    if ($Record.bootstrap_reference) {
+        if ($Record.candidate -or $Record.reference_source.repository -cne 'cwru-non-academic/Python_WSS_Integration_Lib' -or
+            $Record.reference_source.commit -cne '79322a82d285cc526c77ea660beb2993cb04f5d9') { throw 'Only the exact recorded historical reference-copy bootstrap is accepted.' }
+        $expected=$MatlabBootstrapProjectionFiles
+    } else { Assert-MatlabCandidate $Record.candidate }
     $actual = @(Get-ChildItem -LiteralPath $Root -Recurse -File | Where-Object { $_.FullName -cne (Join-Path $Root 'payload-source.json') } | ForEach-Object { [IO.Path]::GetRelativePath($Root,$_.FullName).Replace('\','/') })
-    if (@(Compare-Object $MatlabProjectionFiles $actual -CaseSensitive).Count -ne 0 -or $Record.files.Count -ne $MatlabProjectionFiles.Count -or
-        @(Compare-Object $MatlabProjectionFiles @($Record.files.source) -CaseSensitive).Count -ne 0) { throw 'Exact full universal inventory required; no fallback/extra files.' }
+    if (@(Compare-Object $expected $actual -CaseSensitive).Count -ne 0 -or $Record.files.Count -ne $expected.Count -or
+        @(Compare-Object $expected @($Record.files.source) -CaseSensitive).Count -ne 0) { throw 'Exact full universal inventory required; no fallback/extra files.' }
     foreach ($item in $Record.files) {
         if ((Get-FileHash -LiteralPath (Join-Path $Root $item.source)).Hash.ToLowerInvariant() -cne $item.sha256) { throw "Payload hash mismatch: $($item.source)" }
     }

@@ -14,7 +14,7 @@ Status: receiver source prepared; **disabled**. `.github/matlab-ci.json` has `ba
 
 Correlated runs/branches are reused only when their exact identity and intended tree match. Ambiguous, stale, orphan, expired, failed, or uncertain outcomes stop publication for inspection. No force pushes, rollback PRs, release publication, latest-artifact fallback, or automatic merges.
 
-The current 25-file universal inventory intentionally rejects a changed Core package (including future macOS BLE additions) until that new producer inventory is reviewed. The existing `Cs_Libraries/payload-source.json` remains immutable reference-copy metadata; the bootstrap manifest explicitly records no canonical Core candidate. An identical candidate payload is a verified no-op and preserves that provenance.
+New candidates require the exact 27-file universal inventory, including both macOS BLE files. Only the explicitly identified historical reference-copy bootstrap retains its recorded 25-file inventory; it is never accepted as a new candidate. The existing `Cs_Libraries/payload-source.json` remains immutable reference-copy metadata; the bootstrap manifest explicitly records no canonical Core candidate. An identical candidate payload is a verified no-op and preserves that provenance.
 
 ## Native evidence
 
@@ -27,3 +27,13 @@ The receiver tests use synthetic files/API responses solely to test rejection ga
 ## Separate Core coordination patch
 
 After setup/rulesets/App verification, add one MATLAB entry to Core's reviewed receiver map: repository `cwru-non-academic/Matlab_WSS_Integration_Lib`, workflow `promote-wss.yml`, ref `dev`, input `candidate_json` using the existing immutable universal producer tuple. Keep the current required producer jobs and exact inventory contract; do not accept a Core PR artifact, weaken provenance, or add the CLI directly to Core fan-out. Scope the dispatch token to MATLAB wrapper Actions-write only after producer validation. Coordinate this change with the active Core macOS work; do not publish or activate it concurrently from this task.
+
+## Canonical Core 27-file preparation
+
+The canonical tuple in `automation/candidates/core-40794719291.json` identifies Core dev push `25ee25e519e77be96a918b9b63f3a402c550d631`, run `40794719291`, artifact `12863706436`. No candidate download or dispatch is implied by recording it.
+
+New candidates must contain exactly 27 producer files, including `backends/macos/WSS.Transport.BLE.MacOS.dll` and `backends/macos/libwss_macos_ble.dylib`. Only the explicitly recorded historical reference-copy bootstrap may retain its 25-file inventory. The producer guard additionally requires the universal macOS bridge build and both x86_64/arm64 macOS BLE consumer checks. The macOS compatibility path uses Core's explicit registration and load-only ABI verification; no Bluetooth initialization, authorization probe, scan or connection is performed. Legacy committed payloads remain identified as legacy, not mistaken for the new candidate.
+
+`candidate_preflight_ready` is a separate, currently false, test-only gate. `baseline_ready` remains false and promotion still additionally requires the repository enable variable. This avoids requiring deployment approval before the first candidate can be tested. Any future flag change requires review and an announced test; no setting or credential change is included here.
+
+Before dispatch: verify this contract on ordinary CI, register the updated disabled workflow on default main, verify existing App read access and rulesets, and obtain approval for one correlated pair of wrapper/CLI preflight runs using exact current dev source SHAs. Inspect existing correlated runs before any retry. Successful Python acceptance is not MATLAB evidence. Full promotion remains held until the native MATLAB candidate proof is reviewed.
