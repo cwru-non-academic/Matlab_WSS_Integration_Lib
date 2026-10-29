@@ -23,3 +23,19 @@ verifyFalse(testCase, controller.Ready());
 verifyEqual(testCase, controller.TickCount, 0);
 verifyError(testCase, @() controller.StimWithMode('thumb', 0.5), 'wss:NotInitialized');
 end
+
+function testTransportSelectionAndLegacyAliases(testCase)
+verifyEqual(testCase, wss.WssConfig().Transport, 'serial');
+verifyEqual(testCase, wss.WssConfig('TestMode', true).Transport, 'test');
+verifyTrue(testCase, wss.WssConfig('Transport', 'conformance').ConformanceMode);
+verifyError(testCase, @() wss.WssConfig('Transport', 'wifi'), 'wss:UnsupportedTransport');
+verifyError(testCase, @() wss.WssConfig('Transport', 'ble', 'TestMode', true), 'wss:ConflictingTransport');
+end
+
+function testBleRequiresExplicitSelection(testCase)
+verifyError(testCase, @() wss.WssConfig('Transport', 'ble'), 'wss:BleSelectorRequired');
+verifyError(testCase, @() wss.WssConfig('Transport', 'ble', 'BleDeviceName', '  '), 'wss:BleSelectorRequired');
+config = wss.WssConfig('Transport', 'BLE', 'BleAutoSelect', true);
+verifyEqual(testCase, config.Transport, 'ble');
+verifyTrue(testCase, config.BleAutoSelect);
+end

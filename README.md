@@ -50,8 +50,21 @@ payload and selected runtime still require execution checks together.
 
 `TestMode=true` selects Core's simulated transport. `ConformanceMode=true` selects
 the in-memory emulator and exposes `GetConformance()`. They are mutually exclusive.
-Without either option, initialization constructs the serial transport, as in
-Python. Construction alone never opens a transport. All development checks use
+`Transport` selects `serial` (default), `ble`, `test`, or `conformance`.
+For BLE, supply `BleAutoSelect=true`, `BleDeviceName`, or `BleDeviceId`; these
+map directly to Core's existing `BleNusTransportOptions`. Device-ID precedence,
+discovery and connection remain Core behavior. For example:
+
+```matlab
+config = wss.WssConfig('Transport', 'ble', 'BleDeviceName', 'WSS');
+```
+
+Initialize the controller to start a live connection. The public
+`wss.createTransport(config)` factory constructs the selected Core transport
+without scanning or connecting; its caller owns disposal. Backend loading uses
+only the selected platform's packaged assets. The legacy payload supports
+Windows/Linux BLE loading; macOS BLE requires the newer Core MacOS backend and
+native bridge. A missing selected backend raises `wss:MissingBleBackend`. Construction alone never opens a transport. All development checks use
 the emulator or managed probes; no hardware execution has been performed.
 
 ## Public surface and lifecycle
