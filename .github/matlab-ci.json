@@ -1,0 +1,31 @@
+{
+  "schema": "wss-matlab-ci/v1",
+  "branch": "dev",
+  "baseline_ready": false,
+  "automated_execution": "matlab-native",
+  "matlab_release": "R2026b",
+  "dotnet_sdk": "8.0.x",
+  "fixture_repository": "cwru-non-academic/Matlab_WSS_Integration_Lib",
+  "fixture_commit": "0467d92de6a1de4c8207fe83a8ae392309352574",
+  "fixture_path": "conformance/runConformance.m",
+  "fixture_sha256": "ee1063d323a5e02611833f95d71348fc7dfc9cdc4b10c45b6e03dcbc53fcaca0",
+  "expected_cases": [
+    "initialization",
+    "direct-analog",
+    "normalized.minus-0.2",
+    "normalized.0.0",
+    "normalized.0.37",
+    "normalized.0.5",
+    "normalized.1.0",
+    "normalized.1.2",
+    "runtime-event-edit",
+    "stop-stimulation"
+  ],
+  "reference_safeguards_commit": "67c9f45362de97e1bb16975a6b58ae521cbc925a",
+  "activation_requires": [
+    "main-and-dev-ci-green",
+    "rulesets-configured",
+    "github-app-access-verified",
+    "canonical-core-dev-candidate-preflight-reviewed"
+  ]
+}

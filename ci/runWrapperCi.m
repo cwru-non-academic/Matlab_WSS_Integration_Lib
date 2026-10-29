@@ -18,7 +18,7 @@ switch char(purpose)
         assertSuccess(tests);
         scenarios = runConformance();
         summary = struct('purpose', purpose, 'matlab', version, 'testsPassed', sum([tests.Passed]), ...
-            'scenariosPassed', sum([scenarios.Passed]));
+            'scenariosPassed', sum([scenarios.Passed]), 'cases', {scenarios});
     case 'compatibility'
         summary = checkCompatibility();
         summary.purpose = purpose;
