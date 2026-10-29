@@ -67,6 +67,16 @@ Windows/Linux BLE loading; macOS BLE requires the newer Core MacOS backend and
 native bridge. A missing selected backend raises `wss:MissingBleBackend`. Construction alone never opens a transport. All development checks use
 the emulator or managed probes; no hardware execution has been performed.
 
+## Device addresses
+
+The reusable `Config/stimConfig.json` example explicitly exposes Core's historical
+`broadcastTarget` (`0x8F`) and `wssTargets` (`0x81`, `0x82`, `0x83`) defaults.
+Applications supply their own config and device-specific receiver addresses; the
+C# CLI example selects `0x80` for its first device. These are receiver settings.
+The low-level host sender byte is not a supported Core JSON property.
+Restart/reinitialize the controller after editing addresses so its client receives
+the selected map.
+
 ## Public surface and lifecycle
 
 The facade preserves Python names such as `Initialize`, `Shutdown`, `Ready`,
