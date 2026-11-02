@@ -17,7 +17,7 @@ assert(strcmpi(char(System.IO.Path.GetFullPath(actualPorts)), char(System.IO.Pat
 assert(port.GetType().Assembly.GetName().Version.Major == 8, 'Expected System.IO.Ports major version 8.');
 assert(~port.IsOpen, 'Load-only check must never open a serial port.');
 result = struct('Serial', 'passed', 'Ble', '', 'Platform', computer);
-if ismac && ~isfile(fullfile(csLibDir, 'backends', 'macos', 'WSS.Transport.BLE.MacOS.dll'))
+if ismac && ~wss.hasMacBlePayload(csLibDir)
     result.Ble = 'unsupported-by-legacy-payload';
     fprintf('Serial runtime: PASS; BLE: unavailable in the committed legacy payload.\n');
     return;
@@ -34,6 +34,12 @@ transport = wss.createTransport(wss.WssConfig('CsLibDir', csLibDir, ...
 bleCleanup = onCleanup(@() transport.Dispose());
 assert(~transport.IsConnected, 'Load-only check must never connect to a BLE device.');
 if ismac, Wss.Transports.Backends.MacOS.MacBleBackend.VerifyNativeAbi(); end
+if ismac
+    repeated = wss.createTransport(wss.WssConfig('CsLibDir', csLibDir, ...
+        'Transport', 'ble', 'BleDeviceName', 'ci-load-only'));
+    repeatedCleanup = onCleanup(@() repeated.Dispose());
+    assert(~repeated.IsConnected, 'Repeated registration/construction must remain disconnected.');
+end
 % Native production ABI loading has no connect or radio operation.
 if ispc
     native = System.Runtime.InteropServices.NativeLibrary.Load(fullfile(backendDir, 'WssBleWindows.dll'));

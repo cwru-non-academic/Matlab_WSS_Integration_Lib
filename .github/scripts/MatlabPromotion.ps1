@@ -23,7 +23,7 @@ function Assert-MatlabProducer($Candidate) {
     if ($compare.status -cnotin @('ahead','identical')) { throw 'Producer commit is not contained in Core dev.' }
     $pages=Invoke-MatlabGh @('api','--paginate','--slurp',"repos/$($Candidate.repository)/actions/runs/$($Candidate.run_id)/jobs?per_page=100&filter=latest") | ConvertFrom-Json
     $jobs=@($pages | ForEach-Object { $_.jobs })
-    foreach ($name in @('Build and validate artifacts','Core conformance','Serial consumer (Windows)','Serial consumer (macOS)','Serial consumer (Linux)','BLE consumer (Windows)','BLE consumer (Linux)','Core consumer (Windows)','Core consumer (macOS)','Core consumer (Linux)','Start routine downstream validation')) {
+    foreach ($name in @('Build and validate artifacts','Core conformance','Serial consumer (Windows)','Serial consumer (macOS)','Serial consumer (Linux)','BLE consumer (Windows)','BLE consumer (Linux)','Build macOS universal BLE bridge','BLE consumer (macOS x86_64)','BLE consumer (macOS arm64)','Core consumer (Windows)','Core consumer (macOS)','Core consumer (Linux)','Start routine downstream validation')) {
         $matching=@($jobs | Where-Object { $_.name -ceq $name })
         if ($matching.Count -ne 1 -or $matching[0].conclusion -cne 'success') { throw "Required Core producer job missing/skipped/failed: $name" }
     }
@@ -163,6 +163,12 @@ function Assert-MatlabRemoteProjection([string]$Sha,$Record) {
     $actual=@($tree.tree | Where-Object { $_.type -ceq 'blob' -and $_.path.StartsWith($MatlabPluginPath+'/',[StringComparison]::Ordinal) } | ForEach-Object { $_.path })
     $expected=@($MatlabProjectionFiles | ForEach-Object { "$MatlabPluginPath/$_" }) + @("$MatlabPluginPath/payload-source.json")
     if (@(Compare-Object $expected $actual -CaseSensitive).Count) { throw 'Merged wrapper payload inventory differs.' }
+    $metadataEntries=@($tree.tree | Where-Object { $_.path -ceq "$MatlabPluginPath/payload-source.json" -and $_.type -ceq 'blob' })
+    if ($metadataEntries.Count -ne 1) { throw 'Merged payload metadata is missing/ambiguous.' }
+    $metadataBlob=Invoke-MatlabGh @('api',"repos/$MatlabWrapperRepository/git/blobs/$($metadataEntries[0].sha)") | ConvertFrom-Json
+    if ($metadataBlob.encoding -cne 'base64') { throw 'Unsupported payload metadata encoding.' }
+    $metadata=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($metadataBlob.content)) | ConvertFrom-Json
+    Assert-MatlabProjectionMetadata $metadata $Record
     foreach ($file in $Record.files) {
         $path="$MatlabPluginPath/$($file.source)"
         $entries=@($tree.tree | Where-Object { $_.path -ceq $path -and $_.type -ceq 'blob' })
@@ -215,7 +221,7 @@ function Assert-MatlabSource([string]$Root,[string]$Sha,[switch]$IgnoreSubmodule
 }
 
 function Get-MatlabAllowedWrapperPaths {
-    @($MatlabProjectionFiles | ForEach-Object { "$MatlabPluginPath/$_" }) + @('.github/matlab-candidate.json')
+    @($MatlabProjectionFiles | ForEach-Object { "$MatlabPluginPath/$_" }) + @('.github/matlab-candidate.json',"$MatlabPluginPath/payload-source.json")
 }
 
 function Assert-MatlabDiff([string[]]$Paths,[string[]]$Allowed) {
@@ -296,7 +302,7 @@ function Get-MatlabEvidence([string]$Repository,[string]$RunId,[string]$SourceSh
         $e.fixture_sha -cne $Config.fixture_commit -or $e.fixture_sha256 -cne $Config.fixture_sha256 -or $e.matlab_release -cne $Config.matlab_release) { throw 'Wrong native runtime/source/suite identity.' }
     if ((Get-FileHash (Join-Path $Root 'summary.json')).Hash.ToLowerInvariant() -cne $e.summary_sha256) { throw 'Native summary hash mismatch.' }
     $summary=Get-Content (Join-Path $Root 'summary.json') -Raw | ConvertFrom-Json
-    $expectedTests=if ($Role -ceq 'wrapper') { 5 } else { 4 }
+    $expectedTests=Get-MatlabExpectedNativeTests $Role
     if ($summary.testsPassed -ne $expectedTests -or $summary.scenariosPassed -ne 10 -or $summary.cases.Count -ne 10 -or
         @($summary.cases | Where-Object { $_.Passed -cne $true -or $_.Failure }).Count -or
         @(Compare-Object @($Config.expected_cases) @($summary.cases.Id) -CaseSensitive).Count) { throw 'Missing/duplicate/failed native canonical cases or tests.' }
@@ -305,5 +311,18 @@ function Get-MatlabEvidence([string]$Repository,[string]$RunId,[string]$SourceSh
     if ($projection.bootstrap_reference -cne $false -or $projection.schema -cne 'wss-matlab-projection/v1' -or
         $projection.files.Count -ne $MatlabProjectionFiles.Count -or @(Compare-Object $MatlabProjectionFiles @($projection.files.source) -CaseSensitive).Count -or
         (Get-MatlabProjectionDigest $projection.files) -cne $e.projection_sha256 -or $projection.projection_sha256 -cne $e.projection_sha256) { throw 'Projection/evidence mismatch.' }
+    $normalizedRoot=Join-Path $Root 'normalized'
+    $null=Invoke-MatlabGh @('run','download',$RunId,'--repo',$Repository,'--name','wss-candidate-provenance','--dir',$normalizedRoot)
+    $normalizedFiles=@(Get-ChildItem -LiteralPath $normalizedRoot -Force)
+    if ($normalizedFiles.Count -ne 1 -or $normalizedFiles[0].PSIsContainer -or $normalizedFiles[0].Name -cne 'candidate.json') { throw 'Normalized evidence must contain exactly candidate.json.' }
+    $normalized=Get-Content (Join-Path $normalizedRoot 'candidate.json') -Raw | ConvertFrom-Json
+    Assert-MatlabSameCandidate $normalized $Candidate
+    if (@($normalized.PSObject.Properties).Count -ne 6) { throw 'Normalized candidate must contain only the six producer fields.' }
+    $macRoot=Join-Path $Root 'packaged-macos'
+    $null=Invoke-MatlabGh @('run','download',$RunId,'--repo',$Repository,'--name','matlab-preflight-compatibility-macOS','--dir',$macRoot)
+    $macFiles=@(Get-ChildItem -LiteralPath $macRoot -Force)
+    if ($macFiles.Count -ne 1 -or $macFiles[0].PSIsContainer -or $macFiles[0].Name -cne 'compatibility.json') { throw 'Packaged macOS proof is incomplete.' }
+    $mac=Get-Content (Join-Path $macRoot 'compatibility.json') -Raw | ConvertFrom-Json
+    if ($mac.Serial -cne 'passed' -or $mac.Ble -cne 'passed' -or $mac.Backend -cne 'WSS.Transport.BLE.MacOS' -or $mac.Platform -cnotin @('MACA64','MACI64')) { throw 'Candidate did not verify packaged macOS BLE loading.' }
     $e
 }

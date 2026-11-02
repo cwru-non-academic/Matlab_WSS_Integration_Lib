@@ -155,4 +155,40 @@ passed through both wrapper and CLI compatibility entry points, separately from
 behavioral conformance. No port Open, radio scan, ConnectAsync or stimulation
 operation is used by those checks. Ubuntu/macOS execution remains unverified.
 
-This is initial local implementation. See [future propagation](docs/PROPAGATION.md).
+## Propagation preparation
+
+Ordinary PR CI keeps `Integration behavioral tests` separate from the Windows,
+Ubuntu and macOS compatibility checks. The same native MATLAB action is reused
+by candidate preflights; it uses the production wrapper and shared Core catalog,
+not MATLAB Engine or a replacement implementation.
+
+Downloaded candidates require the exact 27-file universal inventory, including
+the macOS backend and native bridge. Only the explicitly identified historical
+reference copy may retain 25 files. Native evidence requires eight wrapper tests,
+nine CLI tests and all ten canonical cases; normalized candidate metadata is
+additional evidence and cannot replace the richer proof. Mac acceptance requires
+actual packaged ABI loading, not an unsupported legacy result or a surrogate.
+
+The prepared read-only acceptance workflow verifies a frozen Core plan, actual
+human dependency merge, fresh committed-state normal CI, paired native proofs
+and the CLI parent gitlink. It never creates or merges a dependency PR. Receipts
+reject excluded targets, no-op/preparation-only heads and stale/missing evidence.
+
+Preparation is not activation: `baseline_ready` and `candidate_preflight_ready`
+remain false, the propagation variable remains unset, and the pipeline contract
+remains disabled. Source must be reviewed and synchronized onto both main and dev,
+with the receipt workflow registered on main. App configuration presence still
+needs runtime authentication evidence. Rulesets and a real canonical 27-file
+candidate/platform preflight remain prerequisites. Core's current immutable
+verifier and target policy explicitly exclude MATLAB; adding MATLAB and updating
+the reviewed verifier pin require a separate Core change and authorization.
+
+The additional `Mac packaged BLE diagnostic (arm64)` PR job downloads the pinned
+preparation artifact from Core run `40815407554`, verifies its archive hash and
+27-file inventory, and tests a disposable wrapper copy with real MATLAB. It
+requires successful native ABI loading, disconnected construction and CLI
+selector forwarding rather than accepting the legacy unsupported result. This
+job uses existing App access with read-only Core permissions; it does not change
+the committed payload, connect hardware, emit acceptance receipts or activate
+propagation. Its evidence applies to that preparation artifact and runner
+architecture; Intel and physical BLE require separate validation.
