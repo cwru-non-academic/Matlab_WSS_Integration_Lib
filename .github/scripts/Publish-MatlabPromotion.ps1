@@ -25,9 +25,12 @@ if ($role -ceq 'wrapper') {
     $payloadRoot=Join-Path $RepositoryRoot $MatlabPluginPath
     # Both validated roots are exact full inventories; replace only allowlisted files.
     foreach ($source in $MatlabProjectionFiles) {
-        Copy-Item -LiteralPath (Join-Path $WorkRoot "projection/$source") -Destination (Join-Path $payloadRoot $source)
+        $target=Join-Path $payloadRoot $source
+        $null=New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target)
+        Copy-Item -LiteralPath (Join-Path $WorkRoot "projection/$source") -Destination $target
     }
     $projection | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $RepositoryRoot '.github/matlab-candidate.json')
+    $projection | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $payloadRoot 'payload-source.json')
     $allowed=Get-MatlabAllowedWrapperPaths
     $null=Invoke-MatlabGit $RepositoryRoot (@('add','--')+$allowed)
     Assert-MatlabProjection (Join-Path $RepositoryRoot $MatlabPluginPath) $projection

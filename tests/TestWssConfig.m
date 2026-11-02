@@ -40,3 +40,34 @@ config = wss.WssConfig('Transport', 'BLE', 'BleAutoSelect', true);
 verifyEqual(testCase, config.Transport, 'ble');
 verifyTrue(testCase, config.BleAutoSelect);
 end
+
+function testDeclaredMacCapabilityCannotHideMissingAssets(testCase)
+% Synthetic classification fixtures only: no executable native proof.
+directory = tempname;
+mkdir(directory);
+cleanup = onCleanup(@() rmdir(directory, 's'));
+files = repmat(struct('path', ''), 1, 25);
+for k = 1:25, files(k).path = sprintf('legacy-fixture/asset-%d', k); end
+legacy = struct('schema', 'wss-matlab-payload-source/v1', ...
+    'source_repository', 'cwru-non-academic/Python_WSS_Integration_Lib', ...
+    'source_commit', '79322a82d285cc526c77ea660beb2993cb04f5d9', 'files', files);
+writeFixtureFile(fullfile(directory, 'payload-source.json'), jsonencode(legacy));
+verifyFalse(testCase, wss.hasMacBlePayload(directory));
+record = struct('schema', 'wss-matlab-projection/v1', 'bootstrap_reference', false, ...
+    'files', struct('source', {'backends/macos/WSS.Transport.BLE.MacOS.dll', ...
+    'backends/macos/libwss_macos_ble.dylib'}));
+writeFixtureFile(fullfile(directory, 'payload-source.json'), jsonencode(record));
+verifyError(testCase, @() wss.hasMacBlePayload(directory), 'wss:IncompleteMacPayload');
+mkdir(fullfile(directory, 'backends', 'macos'));
+writeFixtureFile(fullfile(directory, 'backends', 'macos', 'WSS.Transport.BLE.MacOS.dll'), 'not an assembly');
+verifyError(testCase, @() wss.hasMacBlePayload(directory), 'wss:IncompleteMacPayload');
+writeFixtureFile(fullfile(directory, 'backends', 'macos', 'libwss_macos_ble.dylib'), 'not a native library');
+verifyTrue(testCase, wss.hasMacBlePayload(directory));
+end
+
+function writeFixtureFile(file, text)
+handle = fopen(file, 'w');
+assert(handle >= 0, 'Cannot create fixture.');
+cleanup = onCleanup(@() fclose(handle));
+fprintf(handle, '%s', text);
+end

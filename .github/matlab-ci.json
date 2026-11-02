@@ -27,5 +27,6 @@
     "rulesets-configured",
     "github-app-access-verified",
     "canonical-core-dev-candidate-preflight-reviewed"
-  ]
+  ],
+  "candidate_preflight_ready": false
 }
