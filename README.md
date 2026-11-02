@@ -182,3 +182,13 @@ needs runtime authentication evidence. Rulesets and a real canonical 27-file
 candidate/platform preflight remain prerequisites. Core's current immutable
 verifier and target policy explicitly exclude MATLAB; adding MATLAB and updating
 the reviewed verifier pin require a separate Core change and authorization.
+
+The additional `Mac packaged BLE diagnostic (arm64)` PR job downloads the pinned
+preparation artifact from Core run `40815407554`, verifies its archive hash and
+27-file inventory, and tests a disposable wrapper copy with real MATLAB. It
+requires successful native ABI loading, disconnected construction and CLI
+selector forwarding rather than accepting the legacy unsupported result. This
+job uses existing App access with read-only Core permissions; it does not change
+the committed payload, connect hardware, emit acceptance receipts or activate
+propagation. Its evidence applies to that preparation artifact and runner
+architecture; Intel and physical BLE require separate validation.
