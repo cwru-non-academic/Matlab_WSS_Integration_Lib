@@ -1,0 +1,48 @@
+name: Mac packaged BLE diagnostic
+description: Test the pinned preparation artifact with production MATLAB paths, without release acceptance or radio access.
+inputs:
+  read-token:
+    description: Existing App token scoped to read Core artifacts
+    required: true
+  role:
+    description: wrapper or cli
+    required: true
+  source-root:
+    description: Production source checkout
+    required: true
+  wrapper-root:
+    description: Exact production wrapper checkout to stage
+    required: true
+  tools-root:
+    description: Reviewed diagnostic tooling checkout
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Stage the immutable preparation payload in a disposable wrapper
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ inputs.read-token }}
+        DIAGNOSTIC_TOOLS: ${{ inputs.tools-root }}
+        DIAGNOSTIC_WRAPPER: ${{ inputs.wrapper-root }}
+      run: |
+        & "$env:DIAGNOSTIC_TOOLS/.github/scripts/Stage-MacArtifactDiagnostic.ps1" -WrapperRoot $env:DIAGNOSTIC_WRAPPER -DiagnosticRoot "$env:RUNNER_TEMP/matlab-mac-artifact-diagnostic"
+    - uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+    - name: Build the staged production tick host
+      shell: pwsh
+      run: |
+        dotnet build "$env:MAC_DIAGNOSTIC_WRAPPER/managed/Wss.Matlab.Managed.csproj" -c Release
+        if ($LASTEXITCODE -ne 0) { throw 'Staged managed host build failed.' }
+    - uses: matlab-actions/setup-matlab@v3
+      with:
+        release: R2026b
+    - name: Require real Mac BLE loading, ABI and disconnected construction
+      uses: matlab-actions/run-command@v3
+      env:
+        DIAGNOSTIC_ROLE: ${{ inputs.role }}
+        DIAGNOSTIC_SOURCE: ${{ inputs.source-root }}
+        DIAGNOSTIC_TOOLS: ${{ inputs.tools-root }}
+      with:
+        command: addpath(fullfile(getenv('DIAGNOSTIC_TOOLS'),'ci')); runMacArtifactDiagnostic(getenv('DIAGNOSTIC_ROLE'),getenv('DIAGNOSTIC_SOURCE'),getenv('MAC_DIAGNOSTIC_WRAPPER'),getenv('MAC_DIAGNOSTIC_EVIDENCE'));

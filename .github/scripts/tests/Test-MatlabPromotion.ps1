@@ -36,6 +36,11 @@ try {
     $files=@($MatlabProjectionFiles | ForEach-Object { @{source=$_;sha256=(Get-FileHash (Join-Path $directory $_)).Hash.ToLowerInvariant()} })
     $record=[pscustomobject]@{schema='wss-matlab-projection/v1';bootstrap_reference=$false;candidate=$candidate;files=$files;projection_sha256=(Get-MatlabProjectionDigest $files)}
     Assert-MatlabProjection $directory $record
+    Assert-MatlabProjectionMetadata $record $record
+    Assert-Rejected { Assert-MatlabProjectionMetadata $bootstrap $record } 'legacy metadata alongside a declared candidate'
+    $staleMetadata=$record | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    $staleMetadata.files[0].sha256=('d'*64)
+    Assert-Rejected { Assert-MatlabProjectionMetadata $staleMetadata $record } 'payload metadata hash mismatch'
     $oldFiles=@($record.files | Where-Object { $_.source -cnotlike 'backends/macos/*' })
     $oldCandidate=[pscustomobject]@{schema=$record.schema;bootstrap_reference=$false;candidate=$candidate;files=$oldFiles;projection_sha256=(Get-MatlabProjectionDigest $oldFiles)}
     $macFiles=@($MatlabProjectionFiles | Where-Object { $_ -clike 'backends/macos/*' })

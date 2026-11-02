@@ -16,6 +16,11 @@ $MatlabProjectionFiles = @($WssUniversalFiles)
 # Downloaded candidates and accepted promotions always require the full 27 files.
 $MatlabBootstrapProjectionFiles = @($WssUniversalFiles | Where-Object { $_ -cnotlike 'backends/macos/*' })
 
+function Get-MatlabExpectedNativeTests([ValidateSet('wrapper','cli')][string]$Role) {
+    if ($Role -ceq 'wrapper') { return 8 }
+    return 9
+}
+
 function Invoke-MatlabGh([string[]]$Arguments) {
     $response = & gh @Arguments
     if ($LASTEXITCODE -ne 0) { throw "GitHub operation failed: $($Arguments[0..([Math]::Min(1,$Arguments.Count-1))] -join ' ')" }
@@ -65,6 +70,17 @@ function Assert-MatlabProjection([string]$Root, $Record) {
     }
     if ((Get-MatlabProjectionDigest $Record.files) -cne $Record.projection_sha256) { throw 'Payload digest mismatch.' }
 }
+function Assert-MatlabProjectionMetadata($Actual, $Expected) {
+    if ($Actual.schema -cne 'wss-matlab-projection/v1' -or $Actual.bootstrap_reference -cne $false -or
+        $Actual.files.Count -ne $MatlabProjectionFiles.Count -or
+        @(Compare-Object $MatlabProjectionFiles @($Actual.files.source) -CaseSensitive).Count -or
+        $Actual.projection_sha256 -cne $Expected.projection_sha256 -or
+        (Get-MatlabProjectionDigest $Actual.files) -cne $Expected.projection_sha256) {
+        throw 'Candidate payload metadata is stale, incomplete or differs from its approved projection.'
+    }
+    Assert-MatlabSameCandidate $Actual.candidate $Expected.candidate
+}
+
 function New-MatlabProjection([string]$ArtifactRoot, [string]$WrapperRoot, [string]$Destination, $Candidate) {
     Assert-MatlabCandidate $Candidate
     if (Test-Path -LiteralPath $Destination) { throw 'Payload destination must be new.' }

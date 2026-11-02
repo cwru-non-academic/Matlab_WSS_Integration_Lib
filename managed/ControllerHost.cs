@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Threading;
+using CoreLog = Wss.CoreModule.Log;
 
 namespace Wss.Matlab.Managed
 {
@@ -14,6 +15,9 @@ namespace Wss.Matlab.Managed
     public sealed class ControllerHost : IDisposable
     {
         private readonly object gate = new object();
+        private readonly object logGate = new object();
+        private bool captureCoreLogs;
+        private string lastCoreError = "";
         private readonly object disposeGate = new object();
         private readonly object stack;
         private readonly int interval;
@@ -50,6 +54,11 @@ namespace Wss.Matlab.Managed
         /// <summary>Gets the first background tick failure, or an empty string.</summary>
         public string LastTickError { get { lock (gate) return tickFailure?.ToString() ?? ""; } }
 
+        /// <summary>Gets the latest process-wide Core error captured during this host's lifetime.</summary>
+        /// <remarks>Core's logger is global: with multiple controllers, an entry is diagnostic
+        /// evidence and cannot identify which controller failed. No MATLAB callback is used.</remarks>
+        public string LastCoreError { get { lock (logGate) return lastCoreError; } }
+
         /// <summary>Initializes the stack and starts one background managed thread, once.</summary>
         /// <remarks>No delegate enters MATLAB. A failed initialization disposes the owned stack.</remarks>
         public void Initialize()
@@ -60,6 +69,8 @@ namespace Wss.Matlab.Managed
                 if (initialized) return;
                 try
                 {
+                    lock (logGate) captureCoreLogs = true;
+                    CoreLog.Message += OnCoreMessage;
                     Invoke(stack, "Initialize", Array.Empty<object>());
                     MethodInfo? probe = stack.GetType().GetMethods().SingleOrDefault(m =>
                         m.Name == "TryGetBasic" && m.GetParameters().Length == 1);
@@ -78,6 +89,7 @@ namespace Wss.Matlab.Managed
                     initialized = false;
                     disposed = true;
                     CleanupStack();
+                    DetachCoreLogs();
                     stop.Dispose();
                     throw;
                 }
@@ -178,6 +190,7 @@ namespace Wss.Matlab.Managed
             lock (gate)
             {
                 CleanupStack();
+                DetachCoreLogs();
                 initialized = false;
                 basic = null;
                 thread = null;
@@ -246,8 +259,27 @@ namespace Wss.Matlab.Managed
             if (tickFailure != null) throw new InvalidOperationException("Managed ticking failed.", tickFailure);
         }
 
+        private void OnCoreMessage(CoreLog.LogLevel level, string message)
+        {
+            lock (logGate)
+            {
+                if (!captureCoreLogs) return;
+                if (level == CoreLog.LogLevel.Error) lastCoreError = message ?? "";
+                Log("Core (process-wide) " + level + ": " + message);
+            }
+        }
+
+        private void DetachCoreLogs()
+        {
+            CoreLog.Message -= OnCoreMessage;
+            // Fence a callback already copied by Core's event publisher.
+            lock (logGate) captureCoreLogs = false;
+        }
+
         private void Log(string message)
         {
+            lock (logGate)
+            {
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
@@ -255,6 +287,7 @@ namespace Wss.Matlab.Managed
                     + " " + message + Environment.NewLine);
             }
             catch { /* Diagnostics must not prevent shutdown. */ }
+            }
         }
 
         private static object? Invoke(object receiver, string name, object[] supplied)

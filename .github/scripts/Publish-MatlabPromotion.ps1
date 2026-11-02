@@ -30,6 +30,7 @@ if ($role -ceq 'wrapper') {
         Copy-Item -LiteralPath (Join-Path $WorkRoot "projection/$source") -Destination $target
     }
     $projection | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $RepositoryRoot '.github/matlab-candidate.json')
+    $projection | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $payloadRoot 'payload-source.json')
     $allowed=Get-MatlabAllowedWrapperPaths
     $null=Invoke-MatlabGit $RepositoryRoot (@('add','--')+$allowed)
     Assert-MatlabProjection (Join-Path $RepositoryRoot $MatlabPluginPath) $projection

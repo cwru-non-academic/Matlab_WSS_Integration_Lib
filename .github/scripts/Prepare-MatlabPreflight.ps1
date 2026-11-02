@@ -36,6 +36,7 @@ foreach ($file in $MatlabProjectionFiles) {
     $null=New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target)
     Copy-Item -LiteralPath (Join-Path $WorkRoot "projection/$file") -Destination $target
 }
+$projection | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $WrapperRoot "$MatlabPluginPath/payload-source.json")
 Assert-MatlabProjection (Join-Path $WrapperRoot $MatlabPluginPath) $projection
 # App tests use their real default submodule path, staged from an exact source checkout.
 # Never rewrite the CLI index/gitlink: this disposable worktree change is validation only.

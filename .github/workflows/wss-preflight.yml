@@ -74,21 +74,12 @@ jobs:
           CLI_SHA: ${{ inputs.cli_sha }}
         run: |
           ./wrapper/.github/scripts/Prepare-MatlabPreflight.ps1 -Role wrapper -WrapperRoot "$env:GITHUB_WORKSPACE/wrapper" -CliRoot "$env:GITHUB_WORKSPACE/cli" -WorkRoot "$env:RUNNER_TEMP/matlab-preflight" -CandidateJson $env:CANDIDATE_JSON -WrapperSha $env:WRAPPER_SHA -CliSha $env:CLI_SHA
-      - uses: actions/setup-dotnet@v4
+      - name: Run reusable native MATLAB candidate validation
+        uses: ./source/.github/actions/native-matlab
         with:
-          dotnet-version: '8.0.x'
-      - name: Build existing managed tick host
-        shell: pwsh
-        run: |
-          dotnet build "$env:MATLAB_PREFLIGHT_ROOT/managed/Wss.Matlab.Managed.csproj" -c Release
-          if ($LASTEXITCODE -ne 0) { throw 'Managed host build failed.' }
-      - uses: matlab-actions/setup-matlab@v3
-        with:
-          release: R2026b
-      - name: Run actual native MATLAB production candidate tests
-        uses: matlab-actions/run-command@v3
-        with:
-          command: addpath(fullfile(getenv('MATLAB_PREFLIGHT_ROOT'),'ci')); runWrapperCi('behavioral');
+          root: ${{ env.MATLAB_PREFLIGHT_ROOT }}
+          role: wrapper
+          purpose: behavioral
       - name: Bind native results to the exact candidate and sources
         shell: pwsh
         run: ./wrapper/.github/scripts/Complete-MatlabPreflight.ps1 -WorkRoot "$env:RUNNER_TEMP/matlab-preflight"
@@ -166,24 +157,50 @@ jobs:
           CLI_SHA: ${{ inputs.cli_sha }}
         run: |
           ./wrapper/.github/scripts/Prepare-MatlabPreflight.ps1 -Role wrapper -WrapperRoot "$env:GITHUB_WORKSPACE/wrapper" -CliRoot "$env:GITHUB_WORKSPACE/cli" -WorkRoot "$env:RUNNER_TEMP/matlab-preflight" -CandidateJson $env:CANDIDATE_JSON -WrapperSha $env:WRAPPER_SHA -CliSha $env:CLI_SHA
-      - uses: actions/setup-dotnet@v4
+      - name: Run reusable native MATLAB candidate validation
+        uses: ./source/.github/actions/native-matlab
         with:
-          dotnet-version: '8.0.x'
-      - name: Build existing managed tick host
-        shell: pwsh
-        run: |
-          dotnet build "$env:MATLAB_PREFLIGHT_ROOT/managed/Wss.Matlab.Managed.csproj" -c Release
-          if ($LASTEXITCODE -ne 0) { throw 'Managed host build failed.' }
-      - uses: matlab-actions/setup-matlab@v3
-        with:
-          release: R2026b
-      - name: Run distinct native platform loading checks
-        uses: matlab-actions/run-command@v3
-        with:
-          command: addpath(fullfile(getenv('MATLAB_PREFLIGHT_ROOT'),'ci')); runWrapperCi('compatibility');
+          root: ${{ env.MATLAB_PREFLIGHT_ROOT }}
+          role: wrapper
+          purpose: compatibility
       - uses: actions/upload-artifact@v4
         with:
           name: matlab-preflight-compatibility-${{ matrix.name }}
           path: ${{ env.MATLAB_PREFLIGHT_ROOT }}/artifacts/ci/compatibility.json
           if-no-files-found: error
           retention-days: 14
+  candidate-provenance:
+    name: Publish normalized candidate provenance
+    needs: [behavioral, compatibility]
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: source
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: cwru-non-academic/Matlab_WSS_Integration_Lib
+          ref: ${{ inputs.wrapper_sha }}
+          path: proof-tools
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: matlab-preflight-evidence
+          path: ${{ runner.temp }}/matlab-native-evidence
+      - name: Bind the candidate after all rich native and platform proofs passed
+        shell: pwsh
+        env:
+          CANDIDATE_JSON: ${{ inputs.candidate_json }}
+          WRAPPER_SHA: ${{ inputs.wrapper_sha }}
+          CLI_SHA: ${{ inputs.cli_sha }}
+        run: |
+          ./proof-tools/.github/scripts/Write-CandidateProvenance.ps1 -CandidateJson $env:CANDIDATE_JSON -Role wrapper -WrapperSha $env:WRAPPER_SHA -CliSha $env:CLI_SHA -EvidenceRoot "$env:RUNNER_TEMP/matlab-native-evidence" -OutputPath "$env:RUNNER_TEMP/matlab-candidate-provenance/candidate.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wss-candidate-provenance
+          retention-days: 90
+          if-no-files-found: error
+          path: ${{ runner.temp }}/matlab-candidate-provenance/candidate.json
