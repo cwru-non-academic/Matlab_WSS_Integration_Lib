@@ -1,6 +1,11 @@
 name: Dispatch MATLAB CLI promotion
-run-name: Dispatch MATLAB CLI promotion for ${{ github.event.pull_request.merge_commit_sha }}
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Resume application promotion / wss-{0}', inputs.producer_run_id) || format('Dispatch MATLAB CLI promotion for {0}', github.event.pull_request.merge_commit_sha) }}
 on:
+  workflow_dispatch:
+    inputs:
+      producer_run_id: {required: true, type: string}
+      barrier_run_id: {required: true, type: string}
+      barrier_attempt: {required: true, type: string}
   pull_request_target:
     types: [closed]
     branches: [dev]
@@ -9,16 +14,17 @@ permissions:
   pull-requests: read
   actions: read
 concurrency:
-  group: matlab-dispatch-${{ github.event.pull_request.merge_commit_sha || github.run_id }}
+  group: matlab-dispatch-${{ inputs.producer_run_id || github.event.pull_request.merge_commit_sha || github.run_id }}
   cancel-in-progress: false
 jobs:
   dispatch:
     if: >-
       vars.WSS_MATLAB_PROPAGATION_ENABLED == 'true' &&
-      github.event.pull_request.merged == true &&
+      ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request_target' && github.event.pull_request.merged == true &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.user.type == 'Bot' &&
-      startsWith(github.event.pull_request.head.ref, 'automation/matlab-wss-')
+      startsWith(github.event.pull_request.head.ref, 'automation/matlab-wss-')))
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,19 +42,31 @@ jobs:
           app-id: ${{ vars.WSS_GITHUB_APP_ID }}
           private-key: ${{ secrets.WSS_GITHUB_APP_PRIVATE_KEY }}
           owner: cwru-non-academic
-          repositories: |
-            WSSCore
-            Matlab_WSS_Integration_Lib
-            CLI_Matlab_WSS_Application
+          repositories: ${{ github.event_name == 'workflow_dispatch' && 'WSSCore,CSharp_WSS_Integration_Lib,Unity_WSS_Integration_Lib,Python_WSS_Integration_Lib,Matlab_WSS_Integration_Lib,CLI_Matlab_WSS_Application' || 'WSSCore,Matlab_WSS_Integration_Lib,CLI_Matlab_WSS_Application' }}
           permission-contents: read
           permission-actions: read
           permission-pull-requests: read
+      - uses: actions/checkout@v4
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          repository: cwru-non-academic/WSSCore
+          ref: main
+          path: core-stage
+          token: ${{ steps.read.outputs.token }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          node-version: '24'
       - name: Verify actual reviewed wrapper merge, candidate proof, full normal CI and no-op
         id: validate
         shell: pwsh
         env:
           GH_TOKEN: ${{ steps.read.outputs.token }}
-        run: ./.github/scripts/Dispatch-MatlabCli.ps1 -EventPath $env:GITHUB_EVENT_PATH -WorkRoot "$env:RUNNER_TEMP/matlab-dispatch" -ValidateOnly
+          PRODUCER_RUN_ID: ${{ inputs.producer_run_id }}
+          BARRIER_RUN_ID: ${{ inputs.barrier_run_id }}
+          BARRIER_ATTEMPT: ${{ inputs.barrier_attempt }}
+        run: ./.github/scripts/Dispatch-MatlabCli.ps1 -EventPath $env:GITHUB_EVENT_PATH -WorkRoot "$env:RUNNER_TEMP/matlab-dispatch" -ProducerRunId $env:PRODUCER_RUN_ID -BarrierRunId $env:BARRIER_RUN_ID -BarrierAttempt $env:BARRIER_ATTEMPT -CoreRoot "$env:GITHUB_WORKSPACE/core-stage" -ValidateOnly
       - uses: actions/create-github-app-token@v2
         if: steps.validate.outputs.dispatch_needed == 'true'
         id: dispatch
