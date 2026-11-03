@@ -13,5 +13,5 @@ $e=[ordered]@{schema='wss-matlab-evidence/v1';execution='matlab-native';role=$st
     fixture_sha=$staged.fixture_sha;fixture_sha256=$staged.fixture_sha256;matlab_release='R2026b'
     run_repository=$env:GITHUB_REPOSITORY;run_id=$env:GITHUB_RUN_ID;run_sha=$env:GITHUB_SHA
     summary_sha256=(Get-FileHash (Join-Path $output 'summary.json')).Hash.ToLowerInvariant()}
-if ($summary.matlab -cnotmatch '\(R2026b\)$') { throw 'Unexpected MATLAB release.' }
+if ($summary.matlab -cnotmatch '\(R2026b\)(?: Update [1-9][0-9]*)?\z') { throw 'Unexpected MATLAB release.' }
 $e | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $output 'evidence.json')
