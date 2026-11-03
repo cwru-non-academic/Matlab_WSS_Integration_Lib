@@ -8,9 +8,15 @@ function Assert-Rejected([scriptblock]$Action,[string]$Because) {
 }
 $candidate=[pscustomobject]@{repository='cwru-non-academic/WSSCore';commit=('a'*40);run_id='123';artifact_id='456';archive='WSS-Universal-ci.zip';sha256=('b'*64)}
 $repositoryRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
-$bootstrap=Get-Content (Join-Path $repositoryRoot '.github/matlab-candidate.json') -Raw | ConvertFrom-Json
-Assert-MatlabProjection (Join-Path $repositoryRoot 'Cs_Libraries') $bootstrap
-Write-Output 'PASS actual bootstrap payload manifest digest and full file hashes.'
+$installed=Get-Content (Join-Path $repositoryRoot '.github/matlab-candidate.json') -Raw | ConvertFrom-Json
+Assert-MatlabProjection (Join-Path $repositoryRoot 'Cs_Libraries') $installed
+Write-Output 'PASS installed payload manifest digest and full file hashes.'
+# Legacy branch cases must remain independent of the installed/promoted payload.
+# This synthetic metadata is never used to verify or replace installed files.
+$legacyFiles=@($MatlabBootstrapProjectionFiles | ForEach-Object { @{source=$_;sha256=('0'*64)} })
+$legacyBootstrap=[pscustomobject]@{schema='wss-matlab-projection/v1';bootstrap_reference=$true;candidate=$null
+    reference_source=@{repository='cwru-non-academic/Python_WSS_Integration_Lib';commit='79322a82d285cc526c77ea660beb2993cb04f5d9'}
+    files=$legacyFiles;projection_sha256=(Get-MatlabProjectionDigest $legacyFiles)}
 Assert-MatlabCandidate $candidate
 $bad=$candidate | ConvertTo-Json | ConvertFrom-Json
 $bad.repository='someone/other'
@@ -38,7 +44,7 @@ try {
     $record=[pscustomobject]@{schema='wss-matlab-projection/v1';bootstrap_reference=$false;candidate=$candidate;files=$files;projection_sha256=(Get-MatlabProjectionDigest $files)}
     Assert-MatlabProjection $directory $record
     Assert-MatlabProjectionMetadata $record $record
-    Assert-Rejected { Assert-MatlabProjectionMetadata $bootstrap $record } 'legacy metadata alongside a declared candidate'
+    Assert-Rejected { Assert-MatlabProjectionMetadata $legacyBootstrap $record } 'legacy metadata alongside a declared candidate'
     $staleMetadata=$record | ConvertTo-Json -Depth 8 | ConvertFrom-Json
     $staleMetadata.files[0].sha256=('d'*64)
     Assert-Rejected { Assert-MatlabProjectionMetadata $staleMetadata $record } 'payload metadata hash mismatch'
@@ -98,9 +104,10 @@ $script:comparisonStatus='diverged'
 Assert-Rejected { Assert-MatlabForwardCandidate $previous $candidate ('2'*64) } 'conflicting candidate history'
 $previous.candidate.commit=$candidate.commit
 Assert-Rejected { Assert-MatlabForwardCandidate $previous $candidate ('2'*64) } 'same source with different payload'
-Assert-MatlabForwardCandidate $bootstrap $candidate ('2'*64)
+Assert-MatlabForwardCandidate $previous $candidate $previous.projection_sha256
+Assert-MatlabForwardCandidate $legacyBootstrap $candidate ('2'*64)
 $script:coreHead=('d'*40)
-Assert-Rejected { Assert-MatlabForwardCandidate $bootstrap $candidate ('2'*64) } 'stale initial reference-copy promotion'
+Assert-Rejected { Assert-MatlabForwardCandidate $legacyBootstrap $candidate ('2'*64) } 'stale initial reference-copy promotion'
 $human=[pscustomobject]@{merged=$true;merged_by=[pscustomobject]@{type='User';login='reviewer'};auto_merge=$null}
 Assert-MatlabHumanMerge $human
 $human.merged_by=[pscustomobject]@{type='Bot';login='automation[bot]'}
