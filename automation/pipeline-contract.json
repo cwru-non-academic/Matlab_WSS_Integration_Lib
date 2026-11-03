@@ -1,6 +1,6 @@
 {
   "schema": "wss-matlab-propagation/v1",
-  "enabled": false,
+  "enabled": true,
   "role": "integration-library",
   "upstream": "cwru-non-academic/WSSCore",
   "consumer": "cwru-non-academic/CLI_Matlab_WSS_Application",

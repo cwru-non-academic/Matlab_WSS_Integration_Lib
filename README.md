@@ -174,14 +174,15 @@ human dependency merge, fresh committed-state normal CI, paired native proofs
 and the CLI parent gitlink. It never creates or merges a dependency PR. Receipts
 reject excluded targets, no-op/preparation-only heads and stale/missing evidence.
 
-Preparation is not activation: `baseline_ready` and `candidate_preflight_ready`
-remain false, the propagation variable remains unset, and the pipeline contract
-remains disabled. Source must be reviewed and synchronized onto both main and dev,
-with the receipt workflow registered on main. App configuration presence still
-needs runtime authentication evidence. Rulesets and a real canonical 27-file
-candidate/platform preflight remain prerequisites. Core's current immutable
-verifier and target policy explicitly exclude MATLAB; adding MATLAB and updating
-the reviewed verifier pin require a separate Core change and authorization.
+Approved MATLAB dev participation sets `baseline_ready` and
+`candidate_preflight_ready` true and enables the pipeline contract, with effective
+`WSS_MATLAB_PROPAGATION_ENABLED=true` in both MATLAB repositories. Deploy the
+reviewed configuration on both main and dev. These settings permit execution;
+they do not attest acceptance of a candidate or start a workflow. Every candidate
+still requires immutable provenance, real native/platform preflights and reviewed
+dependency merges, with `auto_merge=false`. Core automatic-trigger approval is
+separate. The existing receipt verifier pin and its MATLAB exclusion are unchanged;
+release acceptance needs its separately reviewed Core policy/verifier alignment.
 
 The additional `Mac packaged BLE diagnostic (arm64)` PR job downloads the pinned
 preparation artifact from Core run `40815407554`, verifies its archive hash and
@@ -208,9 +209,7 @@ approval, parent, payload, native-evidence and application validation chain can
 authorize a target-only write token. Resume uses existing App read access across
 Core and all four integrations; it creates no persistent credentials or grants.
 
-Deploy this declaration and hook on both main and dev before producing a staged
-candidate. This source preparation does not enable MATLAB: both repositories'
-main/dev `baseline_ready` and `candidate_preflight_ready` values and effective
-`WSS_MATLAB_PROPAGATION_ENABLED` variables remain unchanged. Enabling them requires
-separate approval after reviewed registration, rulesets/App readiness and real
-candidate validation. Keep `auto_merge` false; dependency merges remain reviewed.
+Deploy this declaration, hook and approved readiness configuration on both main
+and dev before producing a staged candidate. Verify registered workflows,
+rulesets and existing App access before the separately authorized Core rollout.
+Keep `auto_merge` false; dependency merges and candidate validation remain required.

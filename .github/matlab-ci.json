@@ -1,7 +1,7 @@
 {
   "schema": "wss-matlab-ci/v1",
   "branch": "dev",
-  "baseline_ready": false,
+  "baseline_ready": true,
   "automated_execution": "matlab-native",
   "matlab_release": "R2026b",
   "dotnet_sdk": "8.0.x",
@@ -28,5 +28,5 @@
     "github-app-access-verified",
     "canonical-core-dev-candidate-preflight-reviewed"
   ],
-  "candidate_preflight_ready": false
+  "candidate_preflight_ready": true
 }
