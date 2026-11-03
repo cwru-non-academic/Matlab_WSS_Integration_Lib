@@ -80,6 +80,11 @@ function Invoke-MatlabGh([string[]]$Arguments) {
         @(@{jobs=@($names | ForEach-Object { @{name=$_;conclusion=$script:producerJob} })}) | ConvertTo-Json -Depth 6 -AsArray
     } elseif ($uri -like '*/actions/artifacts/456') {
         @{expired=$script:artifactExpired;name='universal-release-assets';workflow_run=@{id='123';head_sha=$candidate.commit}} | ConvertTo-Json -Depth 4
+    } elseif ($uri -like '*/actions/workflows/wss-compatibility.yml/runs*') {
+        @(@{workflow_runs=$script:reviewedCiRuns}) | ConvertTo-Json -Depth 12 -AsArray
+    } elseif ($uri -like '*/commits/*/pulls*') {
+        $associationPages=[object[]]::new(1);$associationPages[0]=@($script:reviewedCommitPrs)
+        ConvertTo-Json -InputObject $associationPages -Depth 12
     } elseif ($uri -like '*/git/trees/*') {
         @{truncated=$script:stageTruncated;tree=$script:stageEntries} | ConvertTo-Json -Depth 5
     } elseif ($uri -like '*/contents/tools/ci/dev-propagation.json*') {
@@ -128,4 +133,31 @@ $script:stageDenied=$false; $script:stageTruncated=$true
 Assert-Rejected { Test-MatlabStagedProducer $candidate } 'truncated producer tree as policy absence'
 $script:stageTruncated=$false; $script:stagePolicy.libraries[0].applications=@('cwru-non-academic/OTHER')
 Assert-Rejected { Test-MatlabStagedProducer $candidate } 'mismatched staged application receiver'
+$reviewed=[pscustomobject]@{number=20;state='closed';merged_at='2026-11-03T20:24:25Z';merge_commit_sha=('f'*40)
+    head=@{sha=('d'*40);ref='automation/matlab-wss-fixture';repo=@{full_name=$MatlabWrapperRepository}}
+    base=@{ref='dev';repo=@{full_name=$MatlabWrapperRepository}}}
+$success=[pscustomobject]@{id=789;repository=@{full_name=$MatlabWrapperRepository};head_repository=@{full_name=$MatlabWrapperRepository}
+    path='.github/workflows/wss-compatibility.yml';event='pull_request';head_sha=$reviewed.head.sha;head_branch=$reviewed.head.ref
+    status='completed';conclusion='success';pull_requests=@(@{number=20})}
+$script:reviewedCiRuns=@($success);$script:reviewedCommitPrs=@($reviewed)
+if ((Get-MatlabReviewedPullRequestRun $reviewed).id -ne 789) {throw 'Direct reviewed PR CI association failed.'}
+$success.pull_requests=@()
+if ((Get-MatlabReviewedPullRequestRun $reviewed).id -ne 789) {throw 'Unique immutable-commit association must survive an empty postmerge run array.'}
+$script:reviewedCommitPrs=@()
+Assert-Rejected { Get-MatlabReviewedPullRequestRun $reviewed } 'missing commit association'
+$script:reviewedCommitPrs=@($reviewed,$reviewed)
+Assert-Rejected { Get-MatlabReviewedPullRequestRun $reviewed } 'ambiguous commit association'
+$mismatch=$reviewed | ConvertTo-Json -Depth 8 | ConvertFrom-Json;$mismatch.merge_commit_sha=('c'*40)
+$script:reviewedCommitPrs=@($mismatch)
+Assert-Rejected { Get-MatlabReviewedPullRequestRun $reviewed } 'association to another merge'
+$script:reviewedCommitPrs=@($reviewed)
+foreach ($field in @('head_sha','head_branch','path','event')) {
+    $badRun=$success | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    $badRun.$field='wrong'
+    $script:reviewedCiRuns=@($badRun)
+    Assert-Rejected { Get-MatlabReviewedPullRequestRun $reviewed } "wrong CI $field"
+}
+$newer=$success | ConvertTo-Json -Depth 8 | ConvertFrom-Json;$newer.id=790;$newer.conclusion='failure'
+$script:reviewedCiRuns=@($success,$newer)
+Assert-Rejected { Get-MatlabReviewedPullRequestRun $reviewed } 'older green CI hiding a newer failed exact-head run'
 Write-Output 'PASS offline MATLAB provenance, exact inventory, hash and constrained-diff contracts. No runtime simulation is counted as conformance.'
