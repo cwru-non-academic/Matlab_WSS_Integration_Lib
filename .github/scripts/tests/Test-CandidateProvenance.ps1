@@ -14,6 +14,38 @@ try {
     $evidence | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $work 'evidence.json')
     $projection | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $work 'projection.json')
     $normalizerOptions=@{CandidateJson=($candidate|ConvertTo-Json -Compress);Role='wrapper';WrapperSha=('d'*40);CliSha=('e'*40);EvidenceRoot=$work}
+    # Exercise the actual shared binder, including the official CI Update suffix.
+    $previousRoot=$env:MATLAB_PREFLIGHT_ROOT
+    try {
+        $releaseCases=@(
+            @{role='wrapper';version='26.2.0.3386108 (R2026b)';accepted=$true},
+            @{role='wrapper';version='26.2.0.3433840 (R2026b) Update 1';accepted=$true},
+            @{role='cli';version='26.2.0.3433840 (R2026b) Update 1';accepted=$true},
+            @{role='wrapper';version='26.1.0.3433840 (R2026a) Update 1';accepted=$false},
+            @{role='wrapper';version='26.2.0.3433840 (R2026b) Update 1 extra';accepted=$false},
+            @{role='wrapper';version='26.2.0.3433840 (R2026b) Update 0';accepted=$false}
+        )
+        foreach ($case in $releaseCases) {
+            $bindingRoot=Join-Path $work ([guid]::NewGuid().ToString())
+            $env:MATLAB_PREFLIGHT_ROOT=Join-Path $bindingRoot 'source'
+            $ciRoot=Join-Path $env:MATLAB_PREFLIGHT_ROOT 'artifacts/ci'
+            $null=New-Item -ItemType Directory -Path $ciRoot -Force
+            $staged=@{role=$case.role;candidate=$candidate;wrapper_sha=('d'*40);cli_sha=('e'*40);projection_sha256=$projection.projection_sha256;fixture_sha=$config.fixture_commit;fixture_sha256=$config.fixture_sha256}
+            $staged | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $bindingRoot 'staged.json')
+            $projection | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $bindingRoot 'projection.json')
+            $boundSummary=$summary.Clone();$boundSummary.matlab=$case.version;$boundSummary.testsPassed=Get-MatlabExpectedNativeTests $case.role
+            $summaryFile=Join-Path $ciRoot $(if ($case.role -ceq 'wrapper') {'behavioral.json'} else {'general.json'})
+            $boundSummary | ConvertTo-Json -Depth 8 | Set-Content $summaryFile
+            if ($case.accepted) {
+                & "$PSScriptRoot/../Complete-MatlabPreflight.ps1" -WorkRoot $bindingRoot
+                $bound=Get-Content (Join-Path $bindingRoot 'evidence/evidence.json') -Raw | ConvertFrom-Json
+                if ($bound.matlab_release -cne 'R2026b' -or $bound.summary_sha256 -cne (Get-FileHash $summaryFile).Hash.ToLowerInvariant()) {throw 'Release binding changed the exact release or summary hash.'}
+            } else {
+                Reject { & "$PSScriptRoot/../Complete-MatlabPreflight.ps1" -WorkRoot $bindingRoot }
+                if (Test-Path (Join-Path $bindingRoot 'evidence/evidence.json')) {throw 'Rejected release emitted bound evidence.'}
+            }
+        }
+    } finally { $env:MATLAB_PREFLIGHT_ROOT=$previousRoot }
     & "$PSScriptRoot/../Write-CandidateProvenance.ps1" @normalizerOptions -OutputPath (Join-Path $work 'candidate.json')
     $actual=Get-Content (Join-Path $work 'candidate.json') -Raw | ConvertFrom-Json
     Assert-MatlabSameCandidate $actual ([pscustomobject]$candidate)
