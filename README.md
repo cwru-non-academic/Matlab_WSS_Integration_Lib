@@ -192,3 +192,25 @@ job uses existing App access with read-only Core permissions; it does not change
 the committed payload, connect hardware, emit acceptance receipts or activate
 propagation. Its evidence applies to that preparation artifact and runner
 architecture; Intel and physical BLE require separate validation.
+
+The staged-dev receiver declaration is `.github/dev-propagation.json`. For a
+verified Core producer containing `tools/ci/dev-propagation.json`, a merged
+dependency PR waits for Core's all-integration barrier without requesting an
+application write token. Legacy fanout is retained only when the complete tree
+at that verified producer commit proves the policy is absent; API failures or
+invalid policies fail closed.
+
+Core resumes `dispatch-cli-promotion.yml` on main with `producer_run_id`,
+`barrier_run_id` and `barrier_attempt`, under the title
+`Resume application promotion / wss-<producer_run_id>`. Trusted Core main's
+`tools/ci/dev-propagation.mjs verify-barrier` must succeed before the original
+approval, parent, payload, native-evidence and application validation chain can
+authorize a target-only write token. Resume uses existing App read access across
+Core and all four integrations; it creates no persistent credentials or grants.
+
+Deploy this declaration and hook on both main and dev before producing a staged
+candidate. This source preparation does not enable MATLAB: both repositories'
+main/dev `baseline_ready` and `candidate_preflight_ready` values and effective
+`WSS_MATLAB_PROPAGATION_ENABLED` variables remain unchanged. Enabling them requires
+separate approval after reviewed registration, rulesets/App readiness and real
+candidate validation. Keep `auto_merge` false; dependency merges remain reviewed.

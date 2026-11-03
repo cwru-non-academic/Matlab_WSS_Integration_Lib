@@ -1,5 +1,6 @@
 # Offline contract tests only: synthetic files/API responses never count as runtime proof.
 . "$PSScriptRoot/../MatlabPromotion.ps1"
+. "$PSScriptRoot/../MatlabDevStage.ps1"
 function Assert-Rejected([scriptblock]$Action,[string]$Because) {
     $rejected=$false
     try { & $Action } catch { $rejected=$true }
@@ -73,6 +74,11 @@ function Invoke-MatlabGh([string[]]$Arguments) {
         @(@{jobs=@($names | ForEach-Object { @{name=$_;conclusion=$script:producerJob} })}) | ConvertTo-Json -Depth 6 -AsArray
     } elseif ($uri -like '*/actions/artifacts/456') {
         @{expired=$script:artifactExpired;name='universal-release-assets';workflow_run=@{id='123';head_sha=$candidate.commit}} | ConvertTo-Json -Depth 4
+    } elseif ($uri -like '*/git/trees/*') {
+        @{truncated=$script:stageTruncated;tree=$script:stageEntries} | ConvertTo-Json -Depth 5
+    } elseif ($uri -like '*/contents/tools/ci/dev-propagation.json*') {
+        if ($script:stageDenied) { throw 'Synthetic API denial must fail closed.' }
+        @{type='file';encoding='base64';content=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($script:stagePolicy | ConvertTo-Json -Depth 6)))} | ConvertTo-Json
     } else { throw "Unexpected offline API call: $uri" }
 }
 Assert-MatlabProducer $candidate
@@ -103,4 +109,16 @@ $human.merged_by=$null
 Assert-Rejected { Assert-MatlabHumanMerge $human } 'missing merger identity'
 $human.merged_by=[pscustomobject]@{type='User';login='reviewer'}; $human.auto_merge=@{enabled_by='reviewer'}
 Assert-Rejected { Assert-MatlabHumanMerge $human } 'automatic merge configuration'
+$script:producerEvent='push'; $script:producerJob='success'; $script:artifactExpired=$false; $script:comparisonStatus='identical'
+$script:stageTruncated=$false; $script:stageEntries=@(); $script:stageDenied=$false
+if (Test-MatlabStagedProducer $candidate) { throw 'A verified producer without policy must retain legacy fanout.' }
+$script:stageEntries=@(@{path='tools/ci/dev-propagation.json';type='blob'})
+$script:stagePolicy=@{schema='wss-dev-stage/v1';channel='dev';libraries=@(@{id='matlab';repository=$MatlabWrapperRepository;fanout='dispatch-cli-promotion.yml';applications=@($MatlabCliRepository)})}
+if (!(Test-MatlabStagedProducer $candidate)) { throw 'A staged producer must wait for the Core barrier.' }
+$script:stageDenied=$true
+Assert-Rejected { Test-MatlabStagedProducer $candidate } 'policy API denial as legacy fallback'
+$script:stageDenied=$false; $script:stageTruncated=$true
+Assert-Rejected { Test-MatlabStagedProducer $candidate } 'truncated producer tree as policy absence'
+$script:stageTruncated=$false; $script:stagePolicy.libraries[0].applications=@('cwru-non-academic/OTHER')
+Assert-Rejected { Test-MatlabStagedProducer $candidate } 'mismatched staged application receiver'
 Write-Output 'PASS offline MATLAB provenance, exact inventory, hash and constrained-diff contracts. No runtime simulation is counted as conformance.'
