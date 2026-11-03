@@ -181,6 +181,31 @@ function Assert-MatlabRemoteProjection([string]$Sha,$Record) {
 }
 
 
+function Get-MatlabReviewedPullRequestRun($PullRequest) {
+    Assert-MatlabSha $PullRequest.head.sha
+    $pages=Invoke-MatlabGh @('api','--paginate','--slurp',"repos/$MatlabWrapperRepository/actions/workflows/wss-compatibility.yml/runs?event=pull_request&head_sha=$($PullRequest.head.sha)&per_page=100") | ConvertFrom-Json
+    $runs=@($pages | ForEach-Object { $_.workflow_runs } | Sort-Object { [long]$_.id } -Descending)
+    if (!$runs.Count) { throw 'No final-head normal wrapper PR CI exists.' }
+    $run=$runs[0]
+    if ($run.repository.full_name -cne $MatlabWrapperRepository -or $run.head_repository.full_name -cne $MatlabWrapperRepository -or
+        $run.path -cne '.github/workflows/wss-compatibility.yml' -or $run.event -cne 'pull_request' -or
+        $run.head_sha -cne $PullRequest.head.sha -or $run.head_branch -cne $PullRequest.head.ref -or
+        $run.status -cne 'completed' -or $run.conclusion -cne 'success') { throw 'Latest exact-head normal wrapper PR CI has not succeeded with the required identity.' }
+    $links=@($run.pull_requests | ForEach-Object { $_ })
+    if (!$links.Count) {
+        # GitHub can clear run/check-suite PR arrays after merge/branch deletion.
+        # Require an independent, unique association at the immutable reviewed head.
+        $associated=Invoke-MatlabGh @('api','--paginate','--slurp',"repos/$MatlabWrapperRepository/commits/$($PullRequest.head.sha)/pulls?per_page=100") | ConvertFrom-Json
+        $links=@($associated | ForEach-Object { $_ })
+        if ($links.Count -ne 1 -or $links[0].state -cne 'closed' -or $links[0].merged_at -cne $PullRequest.merged_at -or
+            $links[0].merge_commit_sha -cne $PullRequest.merge_commit_sha -or $links[0].head.sha -cne $PullRequest.head.sha -or
+            $links[0].head.ref -cne $PullRequest.head.ref -or $links[0].head.repo.full_name -cne $MatlabWrapperRepository -or
+            $links[0].base.ref -cne 'dev' -or $links[0].base.repo.full_name -cne $MatlabWrapperRepository) { throw 'Missing, ambiguous or mismatched reviewed head-to-PR association.' }
+    }
+    if ($links.Count -ne 1 -or [string]$links[0].number -cne [string]$PullRequest.number) { throw 'Normal CI is not uniquely associated with the reviewed PR.' }
+    return $run
+}
+
 function Assert-MatlabMergedWrapper([string]$Sha,[string]$PrNumber,$Approval) {
     Assert-MatlabSha $Sha
     if ($PrNumber -cnotmatch '^[1-9][0-9]*$') { throw 'Invalid wrapper PR number.' }
@@ -194,10 +219,8 @@ function Assert-MatlabMergedWrapper([string]$Sha,[string]$PrNumber,$Approval) {
     $delta=Invoke-MatlabGh @('api',"repos/$MatlabWrapperRepository/compare/$($Approval.wrapper.source_sha)...$Sha") | ConvertFrom-Json
     if ($delta.total_commits -lt 1 -or $delta.files.Count -ge 300) { throw 'Wrapper comparison empty or potentially truncated.' }
     Assert-MatlabDiff @($delta.files.filename) (Get-MatlabAllowedWrapperPaths)
-    $pages=Invoke-MatlabGh @('api','--paginate','--slurp',"repos/$MatlabWrapperRepository/actions/workflows/wss-compatibility.yml/runs?event=pull_request&head_sha=$($pr.head.sha)&per_page=100") | ConvertFrom-Json
-    $runs=@($pages | ForEach-Object { $_.workflow_runs } | Where-Object { @($_.pull_requests.number) -contains [int]$PrNumber } | Sort-Object { [long]$_.id } -Descending)
-    if ($runs.Count -eq 0 -or $runs[0].status -cne 'completed' -or $runs[0].conclusion -cne 'success') { throw 'Latest final-head normal wrapper PR CI has not succeeded.' }
-    $jobs=Invoke-MatlabGh @('api','--paginate','--slurp',"repos/$MatlabWrapperRepository/actions/runs/$($runs[0].id)/jobs?per_page=100") | ConvertFrom-Json
+    $run=Get-MatlabReviewedPullRequestRun $pr
+    $jobs=Invoke-MatlabGh @('api','--paginate','--slurp',"repos/$MatlabWrapperRepository/actions/runs/$($run.id)/jobs?per_page=100") | ConvertFrom-Json
     foreach ($name in @('Integration behavioral tests','Integration compatibility (Windows)','Integration compatibility (Ubuntu)','Integration compatibility (macOS)')) {
         $required=@($jobs | ForEach-Object { $_.jobs } | Where-Object { $_.name -ceq $name })
         if ($required.Count -ne 1 -or $required[0].conclusion -cne 'success') { throw "Normal committed-state acceptance missing/skipped/failed: $name" }
