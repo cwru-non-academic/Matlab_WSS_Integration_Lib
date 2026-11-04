@@ -67,6 +67,17 @@ jobs:
           BARRIER_RUN_ID: ${{ inputs.barrier_run_id }}
           BARRIER_ATTEMPT: ${{ inputs.barrier_attempt }}
         run: ./.github/scripts/Dispatch-MatlabCli.ps1 -EventPath $env:GITHUB_EVENT_PATH -WorkRoot "$env:RUNNER_TEMP/matlab-dispatch" -ProducerRunId $env:PRODUCER_RUN_ID -BarrierRunId $env:BARRIER_RUN_ID -BarrierAttempt $env:BARRIER_ATTEMPT -CoreRoot "$env:GITHUB_WORKSPACE/core-stage" -ValidateOnly
+      - name: Recheck integration barrier immediately before application writes
+        if: github.event_name == 'workflow_dispatch' && steps.validate.outputs.dispatch_needed == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ steps.read.outputs.token }}
+          PRODUCER_RUN_ID: ${{ inputs.producer_run_id }}
+          BARRIER_RUN_ID: ${{ inputs.barrier_run_id }}
+          BARRIER_ATTEMPT: ${{ inputs.barrier_attempt }}
+        run: |
+          . ./.github/scripts/MatlabDevStage.ps1
+          $null = Get-MatlabIntegrationBarrier "$env:GITHUB_WORKSPACE/core-stage" $env:PRODUCER_RUN_ID $env:BARRIER_RUN_ID $env:BARRIER_ATTEMPT
       - uses: actions/create-github-app-token@v2
         if: steps.validate.outputs.dispatch_needed == 'true'
         id: dispatch
