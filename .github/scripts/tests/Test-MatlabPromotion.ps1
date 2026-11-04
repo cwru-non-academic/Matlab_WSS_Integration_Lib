@@ -160,4 +160,115 @@ foreach ($field in @('head_sha','head_branch','path','event')) {
 $newer=$success | ConvertTo-Json -Depth 8 | ConvertFrom-Json;$newer.id=790;$newer.conclusion='failure'
 $script:reviewedCiRuns=@($success,$newer)
 Assert-Rejected { Get-MatlabReviewedPullRequestRun $reviewed } 'older green CI hiding a newer failed exact-head run'
-Write-Output 'PASS offline MATLAB provenance, exact inventory, hash and constrained-diff contracts. No runtime simulation is counted as conformance.'
+# Execute the actual late workflow command with metadata-only command stubs.
+$workflow=Get-Content "$PSScriptRoot/../../workflows/dispatch-cli-promotion.yml" -Raw
+$stepName='Recheck integration barrier immediately before application writes'
+$step=[regex]::Match($workflow,"(?ms)^      - name: $stepName\r?\n(?<body>.*?)(?=^      - )")
+$validateAt=$workflow.IndexOf('name: Verify actual reviewed wrapper merge')
+$checkAt=$workflow.IndexOf("name: $stepName")
+$tokenAt=$workflow.IndexOf('id: dispatch')
+$postAt=$workflow.IndexOf('name: Dispatch once;')
+if (!$step.Success -or $validateAt -lt 0 -or $checkAt -le $validateAt -or $tokenAt -le $checkAt -or $postAt -le $tokenAt -or
+    !$step.Groups['body'].Value.Contains("if: github.event_name == 'workflow_dispatch' && steps.validate.outputs.dispatch_needed == 'true'")) {
+    throw 'The staged late barrier must gate write credentials after proof validation, preserving legacy/no-op skips.'
+}
+$run=[regex]::Match($step.Groups['body'].Value,'(?s)        run: \|\r?\n(?<command>.*)')
+if (!$run.Success) { throw 'Late barrier command missing.' }
+$lateCheck=[scriptblock]::Create($run.Groups['command'].Value)
+$savedEnvironment=@{}
+foreach ($key in @('GITHUB_EVENT_NAME','GITHUB_REF','GITHUB_WORKFLOW_REF','GITHUB_SHA','GITHUB_WORKSPACE','PRODUCER_RUN_ID','BARRIER_RUN_ID','BARRIER_ATTEMPT','GH_TOKEN','MATLAB_PREFLIGHT_TOKEN')) {
+    $savedEnvironment[$key]=[Environment]::GetEnvironmentVariable($key)
+}
+$script:lateCore='a'*40; $script:lateInvalid=$false; $script:lateDenied=$false
+$script:lateCalls=0; $script:lateWrites=0
+function gh {
+    $global:LASTEXITCODE=0
+    if ('POST' -cin $args) { $script:lateWrites++; throw 'Barrier metadata checks must never write.' }
+    if ($script:lateDenied) { $global:LASTEXITCODE=1; return '{}' }
+    switch ($args[-1]) {
+        'repos/cwru-non-academic/Matlab_WSS_Integration_Lib/branches/main' { @{commit=@{sha=$env:GITHUB_SHA}} | ConvertTo-Json -Depth 4 }
+        'repos/cwru-non-academic/WSSCore/branches/main' { @{commit=@{sha=$script:lateCore}} | ConvertTo-Json -Depth 4 }
+        default { throw "Unexpected late-check read: $($args[-1])" }
+    }
+}
+function git { $global:LASTEXITCODE=0; if ('rev-parse' -cin $args) { $script:lateCore } }
+function node {
+    $script:lateCalls++
+    if (($args[1..4] -join ',') -cne 'verify-barrier,123,456,1') { throw 'Late barrier changed producer/correlation inputs.' }
+    $global:LASTEXITCODE=if ($script:lateInvalid) {1} else {0}
+    @{schema='wss-integration-barrier/v1';candidate=@{run_id='123'};
+        integrations=@{matlab=@{repository='cwru-non-academic/Matlab_WSS_Integration_Lib'}}} | ConvertTo-Json -Depth 6
+}
+Push-Location $repositoryRoot
+try {
+    $env:GITHUB_EVENT_NAME='workflow_dispatch'; $env:GITHUB_REF='refs/heads/main'; $env:GITHUB_SHA='e'*40
+    $env:GITHUB_WORKFLOW_REF="$MatlabWrapperRepository/.github/workflows/dispatch-cli-promotion.yml@refs/heads/main"
+    $env:GITHUB_WORKSPACE=$repositoryRoot
+    $env:PRODUCER_RUN_ID='123'; $env:BARRIER_RUN_ID='456'; $env:BARRIER_ATTEMPT='1'
+    & $lateCheck
+    $script:lateInvalid=$true
+    Assert-Rejected { & $lateCheck } 'barrier moved after initial proof validation'
+    $script:lateInvalid=$false; $script:lateDenied=$true
+    Assert-Rejected { & $lateCheck } 'read token/API denial before write authorization'
+    if ($script:lateCalls -ne 2 -or $script:lateWrites -ne 0) { throw 'Late barrier rejection retried verification or attempted a write.' }
+} finally {
+    Pop-Location
+    Remove-Item Function:gh,Function:git,Function:node
+    foreach ($key in $savedEnvironment.Keys) { [Environment]::SetEnvironmentVariable($key,$savedEnvironment[$key]) }
+    $global:LASTEXITCODE=0
+}
+
+# Port the existing Python queued-request regressions; no queued run is proof.
+$script:preflightPosted=$null; $script:preflightPosts=0; $script:preflightExisting=$false
+$script:preflightAmbiguous=$false; $script:preflightWrongSource=$false; $script:preflightPostFails=$false
+$script:preflightStatus='queued'; $script:preflightConclusion=''; $script:preflightRole='wrapper'
+function Invoke-MatlabGh([string[]]$Arguments) {
+    $source=if ($script:preflightRole -ceq 'wrapper') {'c'*40} else {'d'*40}
+    if ($script:preflightWrongSource) { $source='f'*40 }
+    $repo=if ($script:preflightRole -ceq 'wrapper') {$MatlabWrapperRepository} else {$MatlabCliRepository}
+    $run=@{id='900';repository=@{full_name=$repo};path='.github/workflows/wss-preflight.yml';event='workflow_dispatch';head_sha=$source;
+        status=$script:preflightStatus;conclusion=$script:preflightConclusion;display_title="WSS preflight 123 / wss-123-456-$('c'*40)-$('d'*40)"}
+    if ($Arguments[-1] -like '*/actions/runs/900') { return ($run | ConvertTo-Json -Depth 6) }
+    if ($Arguments[-1] -notlike '*wss-preflight.yml/runs?*') { throw 'Unexpected preflight fixture API read.' }
+    $runs=@(); if ($script:preflightPosted -or $script:preflightExisting -or $script:preflightAmbiguous) { $runs=@($run) }
+    if ($script:preflightAmbiguous) { $runs+=@($run) }
+    ConvertTo-Json -InputObject @(@{workflow_runs=$runs}) -Depth 8 -Compress
+}
+function gh {
+    if ($env:GH_TOKEN -cne 'unit-only-scoped-token') { throw 'Preflight POST did not use its scoped writer token.' }
+    $script:preflightPosts++; $script:preflightPosted=($input -join "`n") | ConvertFrom-Json
+    $global:LASTEXITCODE=if ($script:preflightPostFails) {1} else {0}
+}
+try {
+    $env:GH_TOKEN='unit-only-reader'; $env:MATLAB_PREFLIGHT_TOKEN='unit-only-scoped-token'
+    foreach ($role in @('wrapper','cli')) {
+        $script:preflightRole=$role; $script:preflightPosted=$null
+        $repo=if ($role -ceq 'wrapper') {$MatlabWrapperRepository} else {$MatlabCliRepository}
+        $queued=Start-MatlabPreflight $repo $candidate ('c'*40) ('d'*40) -NoWait
+        if ($queued.status -cne 'queued' -or $script:preflightPosted.ref -cne 'dev' -or
+            $script:preflightPosted.inputs.wrapper_sha -cne ('c'*40) -or $script:preflightPosted.inputs.cli_sha -cne ('d'*40) -or
+            $env:GH_TOKEN -cne 'unit-only-reader') { throw 'Queued preflight changed its exact sources, acceptance state or reader token.' }
+        Assert-MatlabSameCandidate ($script:preflightPosted.inputs.candidate_json | ConvertFrom-Json) $candidate
+    }
+    $script:preflightPosted=$null; $script:preflightAmbiguous=$true; $beforePosts=$script:preflightPosts
+    Assert-Rejected { Start-MatlabPreflight $MatlabCliRepository $candidate ('c'*40) ('d'*40) -NoWait } 'ambiguous correlation must not redispatch'
+    if ($script:preflightPosts -ne $beforePosts) { throw 'Ambiguous preflight was dispatched again.' }
+    $script:preflightAmbiguous=$false; $script:preflightWrongSource=$true
+    Assert-Rejected { Start-MatlabPreflight $MatlabCliRepository $candidate ('c'*40) ('d'*40) -NoWait } 'source-raced preflight must fail'
+    if ($script:preflightPosts -ne ($beforePosts+1)) { throw 'Source race retried the request.' }
+    $script:preflightWrongSource=$false; $script:preflightPosted=$null; $script:preflightExisting=$true
+    $script:preflightStatus='completed'; $script:preflightConclusion='failure'; $beforePosts=$script:preflightPosts
+    Assert-Rejected { Start-MatlabPreflight $MatlabCliRepository $candidate ('c'*40) ('d'*40) } 'failed correlated run cannot authorize or redispatch'
+    if ($script:preflightPosts -ne $beforePosts) { throw 'Failed correlated preflight was dispatched again.' }
+    $script:preflightExisting=$false; $env:MATLAB_PREFLIGHT_TOKEN=$null
+    Assert-Rejected { Start-MatlabPreflight $MatlabCliRepository $candidate ('c'*40) ('d'*40) -NoWait } 'missing writer token'
+    if ($script:preflightPosted) { throw 'Missing token allowed a POST.' }
+    $env:MATLAB_PREFLIGHT_TOKEN='unit-only-scoped-token'; $script:preflightPostFails=$true
+    Assert-Rejected { Start-MatlabPreflight $MatlabCliRepository $candidate ('c'*40) ('d'*40) -NoWait } 'uncertain POST must not retry'
+    if ($script:preflightPosts -ne ($beforePosts+1) -or $env:GH_TOKEN -cne 'unit-only-reader') { throw 'Uncertain POST retried or leaked the writer token.' }
+} finally {
+    Remove-Item Function:gh
+    foreach ($key in $savedEnvironment.Keys) { [Environment]::SetEnvironmentVariable($key,$savedEnvironment[$key]) }
+    $global:LASTEXITCODE=0
+}
+Write-Output 'PASS offline MATLAB provenance, exact inventory, hash, correlation and late barrier contracts. No runtime simulation is counted as conformance.'
