@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: cwru-non-academic/WSSCore
-          ref: 0fb9ae74504e03dc63777ed70a6ec51c4369d5ab
+          ref: be8546ca46256696bb366925b0094023d7cefc2c
           path: contract
           persist-credentials: false
       - uses: actions/setup-node@v4
