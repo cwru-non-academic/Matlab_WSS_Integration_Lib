@@ -16,6 +16,12 @@ inputs:
   tools-root:
     description: Reviewed diagnostic tooling checkout
     required: true
+  matlab-release:
+    description: Native release for the selected architecture
+    required: true
+  expected-platform:
+    description: MACA64 or MACI64, verified before executing compatibility
+    required: true
 runs:
   using: composite
   steps:
@@ -37,12 +43,14 @@ runs:
         if ($LASTEXITCODE -ne 0) { throw 'Staged managed host build failed.' }
     - uses: matlab-actions/setup-matlab@v3
       with:
-        release: R2026b
+        release: ${{ inputs.matlab-release }}
     - name: Require real Mac BLE loading, ABI and disconnected construction
       uses: matlab-actions/run-command@v3
       env:
         DIAGNOSTIC_ROLE: ${{ inputs.role }}
         DIAGNOSTIC_SOURCE: ${{ inputs.source-root }}
         DIAGNOSTIC_TOOLS: ${{ inputs.tools-root }}
+        DIAGNOSTIC_RELEASE: ${{ inputs.matlab-release }}
+        DIAGNOSTIC_PLATFORM: ${{ inputs.expected-platform }}
       with:
         command: addpath(fullfile(getenv('DIAGNOSTIC_TOOLS'),'ci')); runMacArtifactDiagnostic(getenv('DIAGNOSTIC_ROLE'),getenv('DIAGNOSTIC_SOURCE'),getenv('MAC_DIAGNOSTIC_WRAPPER'),getenv('MAC_DIAGNOSTIC_EVIDENCE'));
