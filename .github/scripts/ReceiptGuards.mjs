@@ -1,5 +1,5 @@
 export const WRAPPER='cwru-non-academic/Matlab_WSS_Integration_Lib';
-export const CONTRACT_SHA='0fb9ae74504e03dc63777ed70a6ec51c4369d5ab';
+export const CONTRACT_SHA='be8546ca46256696bb366925b0094023d7cefc2c';
 export const RECEIPT_WORKFLOW='.github/workflows/release-receipt.yml';
 const paths=workflow=>['.github/workflows/release-receipt.yml','.github/scripts',workflow,'.github/actions','.github/matlab-ci.json','ci','conformance'];
 export const TARGETS={
