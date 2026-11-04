@@ -97,7 +97,6 @@ jobs:
         include:
           - {name: Windows, os: windows-latest}
           - {name: Ubuntu, os: ubuntu-latest}
-          - {name: macOS, os: macos-latest}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
@@ -169,9 +168,128 @@ jobs:
           path: ${{ env.MATLAB_PREFLIGHT_ROOT }}/artifacts/ci/compatibility.json
           if-no-files-found: error
           retention-days: 14
+  macos-native:
+    name: Preflight native macOS (${{ matrix.arch }}, ${{ matrix.release }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: arm64, os: macos-15, platform: MACA64, release: R2026b}
+          - {arch: x86_64, os: macos-15-intel, platform: MACI64, release: R2025b}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          persist-credentials: false
+      - name: Require approved baseline and trusted dev event
+        shell: pwsh
+        run: |
+          $config=Get-Content source/.github/matlab-ci.json -Raw | ConvertFrom-Json
+          if ($config.candidate_preflight_ready -cne $true -or $env:GITHUB_REF -cne 'refs/heads/dev' -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch') { throw 'Read-only native candidate preflight approval remains pending; promotion is separate.' }
+      - name: Validate source refs before checking out or executing nominated source
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WRAPPER_SHA: ${{ inputs.wrapper_sha }}
+          CLI_SHA: ${{ inputs.cli_sha }}
+        run: |
+          foreach ($pair in @(@('Matlab_WSS_Integration_Lib',$env:WRAPPER_SHA),@('CLI_Matlab_WSS_Application',$env:CLI_SHA))) {
+            if ($pair[1] -cnotmatch '^[0-9a-f]{40}$') { throw 'Full source SHA required.' }
+            $actual=gh api "repos/cwru-non-academic/$($pair[0])/branches/dev" --jq '.commit.sha'
+            if ($LASTEXITCODE -ne 0 -or $actual -cne $pair[1]) { throw 'Nominated source is not current trusted dev.' }
+          }
+          $own=if ('wrapper' -ceq 'wrapper') { $env:WRAPPER_SHA } else { $env:CLI_SHA }
+          if ($own -cne $env:GITHUB_SHA) { throw 'Own source differs from workflow source.' }
+      - uses: actions/create-github-app-token@v2
+        id: read
+        with:
+          app-id: ${{ vars.WSS_GITHUB_APP_ID }}
+          private-key: ${{ secrets.WSS_GITHUB_APP_PRIVATE_KEY }}
+          owner: cwru-non-academic
+          repositories: |
+            WSSCore
+            Matlab_WSS_Integration_Lib
+            CLI_Matlab_WSS_Application
+          permission-contents: read
+          permission-actions: read
+      - uses: actions/checkout@v4
+        with:
+          repository: cwru-non-academic/Matlab_WSS_Integration_Lib
+          ref: ${{ inputs.wrapper_sha }}
+          path: wrapper
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: cwru-non-academic/CLI_Matlab_WSS_Application
+          ref: ${{ inputs.cli_sha }}
+          path: cli
+          persist-credentials: false
+      - name: Validate immutable producer and stage exact DLL projection
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ steps.read.outputs.token }}
+          CANDIDATE_JSON: ${{ inputs.candidate_json }}
+          WRAPPER_SHA: ${{ inputs.wrapper_sha }}
+          CLI_SHA: ${{ inputs.cli_sha }}
+        run: |
+          ./wrapper/.github/scripts/Prepare-MatlabPreflight.ps1 -Role wrapper -WrapperRoot "$env:GITHUB_WORKSPACE/wrapper" -CliRoot "$env:GITHUB_WORKSPACE/cli" -WorkRoot "$env:RUNNER_TEMP/matlab-preflight" -CandidateJson $env:CANDIDATE_JSON -WrapperSha $env:WRAPPER_SHA -CliSha $env:CLI_SHA
+      - name: Run reusable native MATLAB candidate validation
+        uses: ./source/.github/actions/native-matlab
+        with:
+          root: ${{ env.MATLAB_PREFLIGHT_ROOT }}
+          role: wrapper
+          purpose: compatibility
+          matlab-release: ${{ matrix.release }}
+          expected-platform: ${{ matrix.platform }}
+      - name: Bind the native candidate compatibility architecture
+        shell: pwsh
+        run: ./wrapper/.github/scripts/Write-MatlabMacLane.ps1 -InputPath "$env:MATLAB_PREFLIGHT_ROOT/artifacts/ci/compatibility.json" -Architecture ${{ matrix.arch }} -OutputPath "$env:RUNNER_TEMP/mac-lane/compatibility.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: matlab-preflight-compatibility-macOS-a${{ github.run_attempt }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/mac-lane/compatibility.json
+          if-no-files-found: error
+          retention-days: 14
+  macos-compatibility:
+    name: Preflight compatibility (macOS)
+    if: always()
+    needs: [macos-native]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Require both native macOS lanes
+        shell: pwsh
+        env:
+          MACOS_NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          $needs = $env:MACOS_NEEDS_JSON | ConvertFrom-Json
+          if ($needs.'macos-native'.result -cne 'success') { throw 'A native macOS lane failed, was skipped or cancelled.' }
+      - uses: actions/checkout@v4
+        with:
+          repository: cwru-non-academic/Matlab_WSS_Integration_Lib
+          ref: ${{ inputs.wrapper_sha }}
+          path: mac-tools
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: matlab-preflight-compatibility-macOS-a${{ github.run_attempt }}-*
+          path: ${{ runner.temp }}/mac-lanes
+      - name: Require both native candidate architecture proofs
+        shell: pwsh
+        env:
+          MACOS_NEEDS_JSON: ${{ toJSON(needs) }}
+        run: ./mac-tools/.github/scripts/Complete-MatlabMacCoverage.ps1 -EvidenceRoot "$env:RUNNER_TEMP/mac-lanes" -ArtifactPrefix 'matlab-preflight-compatibility-macOS-a${{ github.run_attempt }}' -OutputPath "$env:RUNNER_TEMP/mac-coverage/compatibility.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: matlab-preflight-compatibility-macOS
+          path: ${{ runner.temp }}/mac-coverage/compatibility.json
+          if-no-files-found: error
+          retention-days: 14
   candidate-provenance:
     name: Publish normalized candidate provenance
-    needs: [behavioral, compatibility]
+    needs: [behavioral, compatibility, macos-compatibility]
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
