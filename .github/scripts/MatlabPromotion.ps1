@@ -1,4 +1,5 @@
 . "$PSScriptRoot/MatlabContract.ps1"
+. "$PSScriptRoot/MatlabMacCoverage.ps1"
 
 function Wait-MatlabRun([string]$Repository,[string]$RunId,[string]$Sha,[string]$Workflow,[string]$Event,[int]$TimeoutSeconds=2400) {
     Assert-MatlabSha $Sha
@@ -346,6 +347,6 @@ function Get-MatlabEvidence([string]$Repository,[string]$RunId,[string]$SourceSh
     $macFiles=@(Get-ChildItem -LiteralPath $macRoot -Force)
     if ($macFiles.Count -ne 1 -or $macFiles[0].PSIsContainer -or $macFiles[0].Name -cne 'compatibility.json') { throw 'Packaged macOS proof is incomplete.' }
     $mac=Get-Content (Join-Path $macRoot 'compatibility.json') -Raw | ConvertFrom-Json
-    if ($mac.Serial -cne 'passed' -or $mac.Ble -cne 'passed' -or $mac.Backend -cne 'WSS.Transport.BLE.MacOS' -or $mac.Platform -cnotin @('MACA64','MACI64')) { throw 'Candidate did not verify packaged macOS BLE loading.' }
+    Assert-MatlabMacCoverage $mac
     $e
 }

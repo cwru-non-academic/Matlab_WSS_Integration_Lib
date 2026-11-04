@@ -1,6 +1,12 @@
 function summary = runMacArtifactDiagnostic(role, sourceRoot, wrapperRoot, evidenceDir)
 %RUNMACARTIFACTDIAGNOSTIC Test a verified disposable payload without radio access.
-assert(ismac && strcmp(computer, 'MACA64'), 'This diagnostic requires native macOS arm64 MATLAB.');
+expectedPlatform = getenv('DIAGNOSTIC_PLATFORM');
+expectedRelease = getenv('DIAGNOSTIC_RELEASE');
+assert(ismac && any(strcmp(expectedPlatform, {'MACA64', 'MACI64'})) && ...
+    strcmp(computer, expectedPlatform), 'This diagnostic requires the nominated native Mac architecture.');
+assert(strcmp(['R', version('-release')], expectedRelease), 'Wrong diagnostic MATLAB release.');
+assert((strcmp(expectedPlatform, 'MACA64') && strcmp(expectedRelease, 'R2026b')) || ...
+    (strcmp(expectedPlatform, 'MACI64') && strcmp(expectedRelease, 'R2025b')), 'Unexpected architecture/release pair.');
 oldPath = path;
 cleanup = onCleanup(@() path(oldPath));
 dotnetenv('core', Version='8');
