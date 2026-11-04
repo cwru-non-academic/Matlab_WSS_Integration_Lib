@@ -1,6 +1,7 @@
 # Offline contract tests only: synthetic files/API responses never count as runtime proof.
 . "$PSScriptRoot/../MatlabPromotion.ps1"
 . "$PSScriptRoot/../MatlabDevStage.ps1"
+& "$PSScriptRoot/Test-MatlabMacCoverage.ps1"
 function Assert-Rejected([scriptblock]$Action,[string]$Because) {
     $rejected=$false
     try { & $Action } catch { $rejected=$true }
