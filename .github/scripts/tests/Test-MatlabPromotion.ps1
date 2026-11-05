@@ -87,10 +87,10 @@ function Invoke-MatlabGh([string[]]$Arguments) {
         $associationPages=[object[]]::new(1);$associationPages[0]=@($script:reviewedCommitPrs)
         ConvertTo-Json -InputObject $associationPages -Depth 12
     } elseif ($uri -like '*/git/trees/*') {
-        @{truncated=$script:stageTruncated;tree=$script:stageEntries} | ConvertTo-Json -Depth 5
+        @{sha=('7'*40);truncated=$script:stageTruncated;tree=$script:stageEntries} | ConvertTo-Json -Depth 5
     } elseif ($uri -like '*/contents/tools/ci/dev-propagation.json*') {
         if ($script:stageDenied) { throw 'Synthetic API denial must fail closed.' }
-        @{type='file';encoding='base64';content=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($script:stagePolicy | ConvertTo-Json -Depth 6)))} | ConvertTo-Json
+        @{type='file';encoding='base64';sha=('8'*40);content=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($script:stagePolicy | ConvertTo-Json -Depth 6)))} | ConvertTo-Json
     } else { throw "Unexpected offline API call: $uri" }
 }
 Assert-MatlabProducer $candidate
@@ -125,7 +125,7 @@ Assert-Rejected { Assert-MatlabHumanMerge $human } 'automatic merge configuratio
 $script:producerEvent='push'; $script:producerJob='success'; $script:artifactExpired=$false; $script:comparisonStatus='identical'
 $script:stageTruncated=$false; $script:stageEntries=@(); $script:stageDenied=$false
 if (Test-MatlabStagedProducer $candidate) { throw 'A verified producer without policy must retain legacy fanout.' }
-$script:stageEntries=@(@{path='tools/ci/dev-propagation.json';type='blob'})
+$script:stageEntries=@(@{path='tools/ci/dev-propagation.json';type='blob';sha=('8'*40)})
 $script:stagePolicy=@{schema='wss-dev-stage/v1';channel='dev';libraries=@(@{id='matlab';repository=$MatlabWrapperRepository;fanout='dispatch-cli-promotion.yml';applications=@($MatlabCliRepository)})}
 if (!(Test-MatlabStagedProducer $candidate)) { throw 'A staged producer must wait for the Core barrier.' }
 $script:stageDenied=$true
@@ -273,3 +273,5 @@ try {
     $global:LASTEXITCODE=0
 }
 Write-Output 'PASS offline MATLAB provenance, exact inventory, hash, correlation and late barrier contracts. No runtime simulation is counted as conformance.'
+
+$global:LASTEXITCODE=0 # Expected shared-validator rejection fixtures completed.
