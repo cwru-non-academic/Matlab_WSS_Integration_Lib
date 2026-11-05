@@ -8,13 +8,17 @@ function Deny-MacFixture([scriptblock]$Action,[string]$Name) {
 function New-MacFixture {
     $lanes=@(foreach ($arch in @('arm64','x86_64')) {
         $policy=Get-MatlabMacLane $arch
-        @{schema='wss-matlab-macos-compatibility/v1';execution='matlab-native';architecture=$arch
+        @{schema='wss-matlab-macos-compatibility/v1';ci=(New-WssCiEvidenceIdentity $env:GITHUB_REPOSITORY $env:GITHUB_RUN_ID $env:GITHUB_RUN_ATTEMPT $env:GITHUB_SHA $arch);execution='matlab-native';architecture=$arch
           platform=$policy.platform;runner_architecture=$policy.runner;matlab_release=$policy.release;matlab_version="25.2 ($($policy.release))"
           serial='passed';ble='passed';backend='WSS.Transport.BLE.MacOS';hardware_connected=$false}
     })
     @{schema='wss-matlab-macos-coverage/v1';execution='matlab-native';architectures=$lanes;hardware_connected=$false} | ConvertTo-Json -Depth 7 | ConvertFrom-Json
 }
 Assert-MatlabMacCoverage (New-MacFixture)
+$fixture=New-MacFixture;$fixture.architectures[1].ci.attempt='999999'
+Deny-MacFixture { Assert-MatlabMacCoverage $fixture } 'another workflow attempt'
+$fixture=New-MacFixture;$fixture.architectures[1].ci.source_sha='9'*40
+Deny-MacFixture { Assert-MatlabMacCoverage $fixture } 'another source'
 foreach ($state in @('failure','cancelled','skipped','pending','')) {
     Deny-MacFixture { Assert-MatlabMacJobs @{'macos-native'=@{result=$state}} } "job result $state"
 }
