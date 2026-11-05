@@ -8,7 +8,8 @@ $ErrorActionPreference='Stop'
 . "$PSScriptRoot/MatlabMacCoverage.ps1"
 $raw=Get-Content -LiteralPath $InputPath -Raw | ConvertFrom-Json
 $expected=Get-MatlabMacLane $Architecture
-$lane=[ordered]@{schema='wss-matlab-macos-compatibility/v1';execution='matlab-native';architecture=$Architecture
+$identity=New-WssCiEvidenceIdentity $env:GITHUB_REPOSITORY $env:GITHUB_RUN_ID $env:GITHUB_RUN_ATTEMPT $env:GITHUB_SHA $Architecture
+$lane=[ordered]@{schema='wss-matlab-macos-compatibility/v1';ci=$identity;execution='matlab-native';architecture=$Architecture
     platform=$raw.Platform;runner_architecture=$env:RUNNER_ARCH;matlab_release=$expected.release;matlab_version=$raw.matlab
     serial=$raw.Serial;ble=$raw.Ble;backend=$raw.Backend;hardware_connected=$false}
 Assert-MatlabMacLane ([pscustomobject]$lane) $Architecture -AllowLegacy:$AllowLegacy

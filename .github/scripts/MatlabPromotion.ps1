@@ -307,7 +307,7 @@ function Get-MatlabEvidence([string]$Repository,[string]$RunId,[string]$SourceSh
     if ($Repository -cne $expectedRepository) { throw 'Role/repository evidence mismatch.' }
     $run=Wait-MatlabRun $Repository $RunId $SourceSha 'wss-preflight.yml' 'workflow_dispatch'
     if ($run.head_branch -cne 'dev') { throw 'Preflight must execute trusted dev source.' }
-    $pages=Invoke-MatlabGh -Arguments @('api','--paginate','--slurp',"repos/$Repository/actions/runs/$RunId/jobs?per_page=100&filter=latest") | ConvertFrom-Json
+    $pages=Invoke-MatlabGh -Arguments @('api','--paginate','--slurp',"repos/$Repository/actions/runs/$RunId/attempts/$($run.run_attempt)/jobs?per_page=100") | ConvertFrom-Json
     $prefix=if ($Role -ceq 'wrapper') { 'Preflight' } else { 'CLI preflight' }
     foreach ($name in @("$prefix behavioral tests","$prefix compatibility (Windows)","$prefix compatibility (Ubuntu)","$prefix compatibility (macOS)")) {
         $required=@($pages | ForEach-Object { $_.jobs } | Where-Object { $_.name -ceq $name })
@@ -346,6 +346,6 @@ function Get-MatlabEvidence([string]$Repository,[string]$RunId,[string]$SourceSh
     $macFiles=@(Get-ChildItem -LiteralPath $macRoot -Force)
     if ($macFiles.Count -ne 1 -or $macFiles[0].PSIsContainer -or $macFiles[0].Name -cne 'compatibility.json') { throw 'Packaged macOS proof is incomplete.' }
     $mac=Get-Content (Join-Path $macRoot 'compatibility.json') -Raw | ConvertFrom-Json
-    Assert-MatlabMacCoverage $mac
+    Assert-MatlabMacCoverage $mac -Repository $Repository -RunId $RunId -Attempt ([string]$run.run_attempt) -SourceSha $SourceSha
     $e
 }
