@@ -168,7 +168,7 @@ $step=[regex]::Match($workflow,"(?ms)^      - name: $stepName\r?\n(?<body>.*?)(?
 $validateAt=$workflow.IndexOf('name: Verify actual reviewed wrapper merge')
 $checkAt=$workflow.IndexOf("name: $stepName")
 $tokenAt=$workflow.IndexOf('id: dispatch')
-$postAt=$workflow.IndexOf('name: Dispatch once;')
+$postAt=$workflow.IndexOf('name: Dispatch through common durable-intent sender')
 if (!$step.Success -or $validateAt -lt 0 -or $checkAt -le $validateAt -or $tokenAt -le $checkAt -or $postAt -le $tokenAt -or
     !$step.Groups['body'].Value.Contains("if: github.event_name == 'workflow_dispatch' && steps.validate.outputs.dispatch_needed == 'true'")) {
     throw 'The staged late barrier must gate write credentials after proof validation, preserving legacy/no-op skips.'
