@@ -25,7 +25,7 @@ function Get-MatlabIntegrationBarrier([string]$CoreRoot,[string]$ProducerRunId,[
     $output=& node (Join-Path $CoreRoot 'tools/ci/dev-propagation.mjs') verify-barrier $ProducerRunId $BarrierRunId $BarrierAttempt
     if ($LASTEXITCODE -ne 0) { throw 'Trusted Core integration barrier verification failed; no application write is authorized.' }
     $barrier=($output -join "`n") | ConvertFrom-Json
-    if ($barrier.schema -cne 'wss-integration-barrier/v1' -or [string]$barrier.candidate.run_id -cne $ProducerRunId -or
+    if ($barrier.schema -cnotin @('wss-integration-barrier/v1','wss-integration-barrier/v2') -or [string]$barrier.candidate.run_id -cne $ProducerRunId -or
         $barrier.integrations.matlab.repository -cne $MatlabWrapperRepository) { throw 'Verified barrier did not authorize this MATLAB producer/receiver.' }
     return $barrier
 }
