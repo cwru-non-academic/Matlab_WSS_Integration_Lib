@@ -93,6 +93,13 @@ function Invoke-MatlabGh([string[]]$Arguments) {
         @{type='file';encoding='base64';sha=('8'*40);content=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($script:stagePolicy | ConvertTo-Json -Depth 6)))} | ConvertTo-Json
     } else { throw "Unexpected offline API call: $uri" }
 }
+# The shared engine's exact-run event/source rejection is tested in Node. Feed
+# this producer adapter its explicit requested run through the existing fixture.
+function Wait-WssCiRun($Repository,$RunId,$SourceSha,$Workflow,$Event,$TimeoutSeconds) {
+    $run=Invoke-MatlabGh -Arguments @('api',"repos/$Repository/actions/runs/$RunId")|ConvertFrom-Json
+    if($Repository -cne $candidate.repository -or $RunId -cne $candidate.run_id -or $SourceSha -cne $candidate.commit -or $Workflow -cne 'artifacts.yml' -or $Event -cne $run.event){throw 'Synthetic shared producer boundary mismatch.'}
+    $run
+}
 Assert-MatlabProducer $candidate
 $script:producerEvent='pull_request'
 Assert-Rejected { Assert-MatlabProducer $candidate } 'PR artifact as canonical dev evidence'
@@ -219,57 +226,31 @@ try {
     $global:LASTEXITCODE=0
 }
 
-# Port the existing Python queued-request regressions; no queued run is proof.
-$script:preflightPosted=$null; $script:preflightPosts=0; $script:preflightExisting=$false
-$script:preflightAmbiguous=$false; $script:preflightWrongSource=$false; $script:preflightPostFails=$false
-$script:preflightStatus='queued'; $script:preflightConclusion=''; $script:preflightRole='wrapper'
-function Invoke-MatlabGh([string[]]$Arguments) {
-    $source=if ($script:preflightRole -ceq 'wrapper') {'c'*40} else {'d'*40}
-    if ($script:preflightWrongSource) { $source='f'*40 }
-    $repo=if ($script:preflightRole -ceq 'wrapper') {$MatlabWrapperRepository} else {$MatlabCliRepository}
-    $run=@{id='900';repository=@{full_name=$repo};path='.github/workflows/wss-preflight.yml';event='workflow_dispatch';head_sha=$source;
-        status=$script:preflightStatus;conclusion=$script:preflightConclusion;display_title="WSS preflight 123 / wss-123-456-$('c'*40)-$('d'*40)"}
-    if ($Arguments[-1] -like '*/actions/runs/900') { return ($run | ConvertTo-Json -Depth 6) }
-    if ($Arguments[-1] -notlike '*wss-preflight.yml/runs?*') { throw 'Unexpected preflight fixture API read.' }
-    $runs=@(); if ($script:preflightPosted -or $script:preflightExisting -or $script:preflightAmbiguous) { $runs=@($run) }
-    if ($script:preflightAmbiguous) { $runs+=@($run) }
-    ConvertTo-Json -InputObject @(@{workflow_runs=$runs}) -Depth 8 -Compress
+# Shared Node reference contracts cover the HTTP/discovery safety boundary on
+# three hosted OSes. Retain MATLAB's adapter and queued-is-not-proof checks here.
+$script:adapterRequest=$null
+function Start-WssCiPreflight([string]$Repository,$Candidate,[string]$WrapperSha,[string]$ApplicationSha,[string]$DispatchToken) {
+    $script:adapterRequest=@{repository=$Repository;candidate=$Candidate;wrapper_sha=$WrapperSha;application_sha=$ApplicationSha;token=$DispatchToken}
+    [pscustomobject]@{id='900';status='queued';head_sha=$ApplicationSha}
 }
-function gh {
-    if ($env:GH_TOKEN -cne 'unit-only-scoped-token') { throw 'Preflight POST did not use its scoped writer token.' }
-    $script:preflightPosts++; $script:preflightPosted=($input -join "`n") | ConvertFrom-Json
-    $global:LASTEXITCODE=if ($script:preflightPostFails) {1} else {0}
-}
+function Wait-WssCiRun($Repository,$RunId,$SourceSha,$Workflow,$Event,$TimeoutSeconds){throw 'Shared fixture run remains queued; no conformance proof.'}
 try {
-    $env:GH_TOKEN='unit-only-reader'; $env:MATLAB_PREFLIGHT_TOKEN='unit-only-scoped-token'
-    foreach ($role in @('wrapper','cli')) {
-        $script:preflightRole=$role; $script:preflightPosted=$null
-        $repo=if ($role -ceq 'wrapper') {$MatlabWrapperRepository} else {$MatlabCliRepository}
+    $env:GH_TOKEN='unit-only-reader';$env:MATLAB_PREFLIGHT_TOKEN='unit-only-scoped-token'
+    foreach($role in @('wrapper','cli')){
+        $script:adapterRequest=$null
+        $repo=if($role -ceq 'wrapper'){$MatlabWrapperRepository}else{$MatlabCliRepository}
         $queued=Start-MatlabPreflight $repo $candidate ('c'*40) ('d'*40) -NoWait
-        if ($queued.status -cne 'queued' -or $script:preflightPosted.ref -cne 'dev' -or
-            $script:preflightPosted.inputs.wrapper_sha -cne ('c'*40) -or $script:preflightPosted.inputs.cli_sha -cne ('d'*40) -or
-            $env:GH_TOKEN -cne 'unit-only-reader') { throw 'Queued preflight changed its exact sources, acceptance state or reader token.' }
-        Assert-MatlabSameCandidate ($script:preflightPosted.inputs.candidate_json | ConvertFrom-Json) $candidate
+        if($queued.status -cne 'queued' -or $script:adapterRequest.repository -cne $repo -or $script:adapterRequest.wrapper_sha -cne ('c'*40) -or $script:adapterRequest.application_sha -cne ('d'*40) -or $script:adapterRequest.token -cne 'unit-only-scoped-token' -or $env:GH_TOKEN -cne 'unit-only-reader'){throw 'MATLAB adapter changed source, queued state or scoped credentials.'}
+        Assert-MatlabSameCandidate $script:adapterRequest.candidate $candidate
     }
-    $script:preflightPosted=$null; $script:preflightAmbiguous=$true; $beforePosts=$script:preflightPosts
-    Assert-Rejected { Start-MatlabPreflight $MatlabCliRepository $candidate ('c'*40) ('d'*40) -NoWait } 'ambiguous correlation must not redispatch'
-    if ($script:preflightPosts -ne $beforePosts) { throw 'Ambiguous preflight was dispatched again.' }
-    $script:preflightAmbiguous=$false; $script:preflightWrongSource=$true
-    Assert-Rejected { Start-MatlabPreflight $MatlabCliRepository $candidate ('c'*40) ('d'*40) -NoWait } 'source-raced preflight must fail'
-    if ($script:preflightPosts -ne ($beforePosts+1)) { throw 'Source race retried the request.' }
-    $script:preflightWrongSource=$false; $script:preflightPosted=$null; $script:preflightExisting=$true
-    $script:preflightStatus='completed'; $script:preflightConclusion='failure'; $beforePosts=$script:preflightPosts
-    Assert-Rejected { Start-MatlabPreflight $MatlabCliRepository $candidate ('c'*40) ('d'*40) } 'failed correlated run cannot authorize or redispatch'
-    if ($script:preflightPosts -ne $beforePosts) { throw 'Failed correlated preflight was dispatched again.' }
-    $script:preflightExisting=$false; $env:MATLAB_PREFLIGHT_TOKEN=$null
-    Assert-Rejected { Start-MatlabPreflight $MatlabCliRepository $candidate ('c'*40) ('d'*40) -NoWait } 'missing writer token'
-    if ($script:preflightPosted) { throw 'Missing token allowed a POST.' }
-    $env:MATLAB_PREFLIGHT_TOKEN='unit-only-scoped-token'; $script:preflightPostFails=$true
-    Assert-Rejected { Start-MatlabPreflight $MatlabCliRepository $candidate ('c'*40) ('d'*40) -NoWait } 'uncertain POST must not retry'
-    if ($script:preflightPosts -ne ($beforePosts+1) -or $env:GH_TOKEN -cne 'unit-only-reader') { throw 'Uncertain POST retried or leaked the writer token.' }
-} finally {
-    Remove-Item Function:gh
-    foreach ($key in $savedEnvironment.Keys) { [Environment]::SetEnvironmentVariable($key,$savedEnvironment[$key]) }
+    Assert-Rejected {Start-MatlabPreflight $MatlabCliRepository $candidate ('c'*40) ('d'*40)} 'queued is not successful acceptance'
+    $script:adapterRequest=$null
+    Assert-Rejected {Start-MatlabPreflight 'foreign/repository' $candidate ('c'*40) ('d'*40) -NoWait} 'foreign repository cannot dispatch'
+    if($script:adapterRequest){throw 'Foreign repository reached the shared boundary.'}
+}finally{
+    Remove-Item Function:Start-WssCiPreflight,Function:Wait-WssCiRun
+    . "$PSScriptRoot/../wss-ci/Preflight.ps1"
+    foreach($key in $savedEnvironment.Keys){[Environment]::SetEnvironmentVariable($key,$savedEnvironment[$key])}
     $global:LASTEXITCODE=0
 }
 Write-Output 'PASS offline MATLAB provenance, exact inventory, hash, correlation and late barrier contracts. No runtime simulation is counted as conformance.'
