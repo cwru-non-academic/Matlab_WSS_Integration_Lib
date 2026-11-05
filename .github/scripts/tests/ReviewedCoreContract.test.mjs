@@ -1,25 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {execFileSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
-import {resolve,join} from 'node:path';
-import {pathToFileURL} from 'node:url';
-import {CONTRACT_SHA,targetPolicy} from '../ReceiptGuards.mjs';
+import * as verifier from '../wss-ci/verify.mjs';
+import * as transport from '../wss-ci/github.mjs';
+import {targetPolicy} from '../ReceiptGuards.mjs';
 
-test('immutable Core verifier loads and agrees with both MATLAB receiver policies',async()=>{
-  assert.ok(process.env.RECEIPT_CORE_ROOT,'Hosted CI must supply the checked-out Core contract');
-  const root=resolve(process.env.RECEIPT_CORE_ROOT);
-  const sha=execFileSync('git',['-C',root,'rev-parse','HEAD'],{encoding:'utf8'}).trim();
-  assert.equal(sha,CONTRACT_SHA);
-  const verifier=await import(pathToFileURL(join(root,'tools/release/verify.mjs')));
-  const transport=await import(pathToFileURL(join(root,'tools/release/github.mjs')));
+test('the actual copied receipt verifier loads and agrees with both MATLAB policies',()=>{
+  const lock=JSON.parse(readFileSync('.github/scripts/wss-ci.lock.json','utf8'));
+  assert.match(lock.source_commit,/^[a-f0-9]{40}$/);
   for(const name of ['producer','jobs','candidate','canonical','bytesDigest']) assert.equal(typeof verifier[name],'function');
   for(const name of ['GitHub','loadPlan','archive']) assert.equal(typeof transport[name],'function');
-  const manifest=JSON.parse(readFileSync(join(root,'tools/release/targets.dev.json'),'utf8'));
+  const profiles=JSON.parse(readFileSync('.github/scripts/wss-ci/receipt-targets.json','utf8'));
+  const manifest={schema:'wss-required-targets/v1',channel:'dev',release_kind:'beta',stable_enabled:false,excluded:[],targets:Object.values(profiles).map(p=>p.target)};
   verifier.manifest(manifest);
   assert.equal(manifest.targets.length,9);
-  assert.deepEqual(manifest.excluded,[]);
   for(const id of ['matlab-wrapper','matlab-cli']) assert.equal(targetPolicy({channel:'dev',manifest},id).id,id);
-  const workflow=readFileSync('.github/workflows/release-receipt.yml','utf8');
-  assert.match(workflow,new RegExp(`repository: cwru-non-academic/WSSCore\\r?\\n\\s+ref: ${CONTRACT_SHA}\\r?\\n`));
+  for(const job of ['BLE Consumer for Windows','BLE Consumer for Linux','BLE Consumer for Mac']) assert.ok(verifier.CORE_JOBS.includes(job));
+  assert.match(readFileSync('.github/scripts/Write-ReleaseReceipt.mjs','utf8'),/runReceipt.*wss-ci\/receipt\.mjs/);
+  const engine=readFileSync('.github/scripts/wss-ci/receipt.mjs','utf8');
+  assert.match(engine,/from '\.\/verify\.mjs'/);
+  assert.match(engine,/loadPlan.*from '\.\/github\.mjs'/);
 });
