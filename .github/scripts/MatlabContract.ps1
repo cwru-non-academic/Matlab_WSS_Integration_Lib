@@ -22,9 +22,8 @@ function Get-MatlabExpectedNativeTests([ValidateSet('wrapper','cli')][string]$Ro
 }
 
 function Invoke-MatlabGh([string[]]$Arguments) {
-    $response = & gh @Arguments
-    if ($LASTEXITCODE -ne 0) { throw "GitHub operation failed: $($Arguments[0..([Math]::Min(1,$Arguments.Count-1))] -join ' ')" }
-    $response
+    . "$PSScriptRoot/wss-ci/Process.ps1"
+    Invoke-WssCiProcess -Executable gh -Arguments $Arguments -FailureMessage 'GitHub operation failed'
 }
 function Invoke-MatlabGit([string]$Root, [string[]]$Arguments) {
     $response = & git -C $Root @Arguments

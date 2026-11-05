@@ -55,7 +55,6 @@ jobs:
           token: ${{ steps.read.outputs.token }}
           persist-credentials: false
       - uses: actions/setup-node@v4
-        if: github.event_name == 'workflow_dispatch'
         with:
           node-version: '24'
       - name: Verify actual reviewed wrapper merge, candidate proof, full normal CI and no-op
@@ -67,6 +66,13 @@ jobs:
           BARRIER_RUN_ID: ${{ inputs.barrier_run_id }}
           BARRIER_ATTEMPT: ${{ inputs.barrier_attempt }}
         run: ./.github/scripts/Dispatch-MatlabCli.ps1 -EventPath $env:GITHUB_EVENT_PATH -WorkRoot "$env:RUNNER_TEMP/matlab-dispatch" -ProducerRunId $env:PRODUCER_RUN_ID -BarrierRunId $env:BARRIER_RUN_ID -BarrierAttempt $env:BARRIER_ATTEMPT -CoreRoot "$env:GITHUB_WORKSPACE/core-stage" -ValidateOnly
+      - name: Retain dispatch intent before write credentials
+        if: steps.validate.outputs.dispatch_needed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.validate.outputs.intent_name }}
+          path: ${{ runner.temp }}/matlab-dispatch/cli-dispatch.json
+          if-no-files-found: error
       - name: Recheck integration barrier immediately before application writes
         if: github.event_name == 'workflow_dispatch' && steps.validate.outputs.dispatch_needed == 'true'
         shell: pwsh
@@ -87,11 +93,15 @@ jobs:
           owner: cwru-non-academic
           repositories: CLI_Matlab_WSS_Application
           permission-actions: write
-      - name: Dispatch once; inspect uncertain outcomes before retry
+      - name: Dispatch through common durable-intent sender
         if: steps.validate.outputs.dispatch_needed == 'true'
         shell: pwsh
         env:
-          GH_TOKEN: ${{ steps.dispatch.outputs.token }}
+          WSS_READ_TOKEN: ${{ steps.read.outputs.token }}
+          WSS_DISPATCH_TOKEN: ${{ steps.dispatch.outputs.token }}
+          APPLICATION_ROLE: cli
         run: |
-          gh api --method POST repos/cwru-non-academic/CLI_Matlab_WSS_Application/actions/workflows/promote-integration.yml/dispatches --input "$env:RUNNER_TEMP/matlab-dispatch/cli-dispatch.json"
-          if ($LASTEXITCODE -ne 0) { throw 'Dispatch failed or uncertain; inspect before replay.' }
+          . ./.github/scripts/wss-ci/DispatchProof.ps1
+          $root="$env:RUNNER_TEMP/matlab-dispatch"
+          $context=Get-Content (Join-Path $root 'dispatch-sources.json') -Raw|ConvertFrom-Json -AsHashtable
+          Send-WssCiApplicationDispatch $context.repository (Join-Path $root "$env:APPLICATION_ROLE-dispatch.json") $env:WSS_READ_TOKEN $env:WSS_DISPATCH_TOKEN $context.owner $context.name $context.sources

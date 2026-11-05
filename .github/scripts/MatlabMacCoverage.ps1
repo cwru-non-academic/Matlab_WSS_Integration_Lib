@@ -1,26 +1,26 @@
+. "$PSScriptRoot/wss-ci/Evidence.ps1"
 # Native compatibility evidence only; never a radio/device acceptance claim.
 function Get-MatlabMacLane([ValidateSet('arm64','x86_64')][string]$Architecture) {
     if ($Architecture -ceq 'arm64') { return @{platform='MACA64';release='R2026b';runner='ARM64'} }
     @{platform='MACI64';release='R2025b';runner='X64'}
 }
-function Assert-MatlabMacLane($Lane,[ValidateSet('arm64','x86_64')][string]$Architecture,[switch]$AllowLegacy) {
+function Assert-MatlabMacLane($Lane,[ValidateSet('arm64','x86_64')][string]$Architecture,[switch]$AllowLegacy,[string]$Repository=$env:GITHUB_REPOSITORY,[string]$RunId=$env:GITHUB_RUN_ID,[string]$Attempt=$env:GITHUB_RUN_ATTEMPT,[string]$SourceSha=$env:GITHUB_SHA) {
+    Assert-WssCiEvidenceIdentity $Lane.ci $Repository $RunId $Attempt $SourceSha $Architecture
     $expected=Get-MatlabMacLane $Architecture
-    if ($Lane.schema -cne 'wss-matlab-macos-compatibility/v1' -or $Lane.execution -cne 'matlab-native' -or
-        $Lane.architecture -cne $Architecture -or $Lane.platform -cne $expected.platform -or
-        $Lane.runner_architecture -cne $expected.runner -or $Lane.matlab_release -cne $expected.release -or
-        $Lane.matlab_version -cnotmatch ('\('+[regex]::Escape($expected.release)+'\)(?: Update [1-9][0-9]*)?\z') -or
-        $Lane.serial -cne 'passed' -or $Lane.hardware_connected -cne $false) { throw "Wrong native macOS identity/runtime: $Architecture" }
+    Assert-WssCiEvidenceFields $Lane @{schema='wss-matlab-macos-compatibility/v1';execution='matlab-native';architecture=$Architecture;platform=$expected.platform;runner_architecture=$expected.runner;matlab_release=$expected.release;serial='passed';hardware_connected=$false}
+    if ($Lane.matlab_version -cnotmatch ('\('+[regex]::Escape($expected.release)+'\)(?: Update [1-9][0-9]*)?\z')) {throw "Wrong native macOS runtime version: $Architecture"}
     if ($Lane.ble -ceq 'passed' -and $Lane.backend -ceq 'WSS.Transport.BLE.MacOS') { return }
     if ($AllowLegacy -and $Lane.ble -ceq 'unsupported-by-legacy-payload') { return }
     throw "Packaged BLE compatibility did not pass: $Architecture"
 }
-function Assert-MatlabMacCoverage($Coverage,[switch]$AllowLegacy) {
+function Assert-MatlabMacCoverage($Coverage,[switch]$AllowLegacy,[string]$Repository=$env:GITHUB_REPOSITORY,[string]$RunId=$env:GITHUB_RUN_ID,[string]$Attempt=$env:GITHUB_RUN_ATTEMPT,[string]$SourceSha=$env:GITHUB_SHA) {
     if ($Coverage.schema -cne 'wss-matlab-macos-coverage/v1' -or $Coverage.execution -cne 'matlab-native' -or
         $Coverage.hardware_connected -cne $false -or @($Coverage.architectures).Count -ne 2) { throw 'Both native macOS architectures are required.' }
+    Assert-WssCiArchitecturePair $Coverage.architectures @('arm64','x86_64')
     foreach ($arch in @('arm64','x86_64')) {
         $lane=@($Coverage.architectures | Where-Object architecture -CEQ $arch)
         if ($lane.Count -ne 1) { throw "Missing or duplicate native macOS lane: $arch" }
-        Assert-MatlabMacLane $lane[0] $arch -AllowLegacy:$AllowLegacy
+        Assert-MatlabMacLane $lane[0] $arch -AllowLegacy:$AllowLegacy -Repository $Repository -RunId $RunId -Attempt $Attempt -SourceSha $SourceSha
     }
 }
 function Assert-MatlabMacJobs($Needs) {

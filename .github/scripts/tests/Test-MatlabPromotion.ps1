@@ -73,12 +73,12 @@ $script:producerEvent='push'; $script:producerJob='success'; $script:artifactExp
 function Invoke-MatlabGh([string[]]$Arguments) {
     $uri=$Arguments[-1]
     if ($uri -like '*/actions/runs/123') {
-        @{repository=@{full_name=$candidate.repository};head_repository=@{full_name=$candidate.repository};path='.github/workflows/artifacts.yml';head_sha=$candidate.commit;event=$script:producerEvent;head_branch='dev';status='completed';conclusion='success'} | ConvertTo-Json -Depth 4
+        @{repository=@{full_name=$candidate.repository};head_repository=@{full_name=$candidate.repository};path='.github/workflows/artifacts.yml';head_sha=$candidate.commit;event=$script:producerEvent;head_branch='dev';status='completed';conclusion='success';run_attempt=1} | ConvertTo-Json -Depth 4
     } elseif ($uri -like '*/compare/*') { @{status=$script:comparisonStatus} | ConvertTo-Json }
     elseif ($uri -like '*/branches/dev') { @{commit=@{sha=$script:coreHead}} | ConvertTo-Json -Depth 3 }
     elseif ($uri -like '*/jobs*') {
-        $names=@('Build and validate artifacts','Core conformance','Serial consumer (Windows)','Serial consumer (macOS)','Serial consumer (Linux)','BLE consumer (Windows)','BLE consumer (Linux)','Build macOS universal BLE bridge','BLE consumer (macOS x86_64)','BLE consumer (macOS arm64)','Core consumer (Windows)','Core consumer (macOS)','Core consumer (Linux)','Start routine downstream validation')
-        @(@{jobs=@($names | ForEach-Object { @{name=$_;conclusion=$script:producerJob} })}) | ConvertTo-Json -Depth 6 -AsArray
+        $names=@('Build and validate artifacts','Core conformance','Serial consumer (Windows)','Serial consumer (macOS)','Serial consumer (Linux)','BLE consumer (Windows)','BLE consumer (Linux)','Build macOS universal BLE bridge','BLE consumer (macOS x86_64)','BLE consumer (macOS arm64)','Core consumer (Windows)','Core consumer (macOS)','Core consumer (Linux)','Start routine downstream validation','BLE Consumer for Windows','BLE Consumer for Linux','BLE Consumer for Mac')
+        @(@{jobs=@($names | ForEach-Object { @{name=$_;status='completed';conclusion=$script:producerJob} })}) | ConvertTo-Json -Depth 6 -AsArray
     } elseif ($uri -like '*/actions/artifacts/456') {
         @{expired=$script:artifactExpired;name='universal-release-assets';workflow_run=@{id='123';head_sha=$candidate.commit}} | ConvertTo-Json -Depth 4
     } elseif ($uri -like '*/actions/workflows/wss-compatibility.yml/runs*') {
@@ -87,10 +87,10 @@ function Invoke-MatlabGh([string[]]$Arguments) {
         $associationPages=[object[]]::new(1);$associationPages[0]=@($script:reviewedCommitPrs)
         ConvertTo-Json -InputObject $associationPages -Depth 12
     } elseif ($uri -like '*/git/trees/*') {
-        @{truncated=$script:stageTruncated;tree=$script:stageEntries} | ConvertTo-Json -Depth 5
+        @{sha=('7'*40);truncated=$script:stageTruncated;tree=$script:stageEntries} | ConvertTo-Json -Depth 5
     } elseif ($uri -like '*/contents/tools/ci/dev-propagation.json*') {
         if ($script:stageDenied) { throw 'Synthetic API denial must fail closed.' }
-        @{type='file';encoding='base64';content=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($script:stagePolicy | ConvertTo-Json -Depth 6)))} | ConvertTo-Json
+        @{type='file';encoding='base64';sha=('8'*40);content=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($script:stagePolicy | ConvertTo-Json -Depth 6)))} | ConvertTo-Json
     } else { throw "Unexpected offline API call: $uri" }
 }
 Assert-MatlabProducer $candidate
@@ -125,7 +125,7 @@ Assert-Rejected { Assert-MatlabHumanMerge $human } 'automatic merge configuratio
 $script:producerEvent='push'; $script:producerJob='success'; $script:artifactExpired=$false; $script:comparisonStatus='identical'
 $script:stageTruncated=$false; $script:stageEntries=@(); $script:stageDenied=$false
 if (Test-MatlabStagedProducer $candidate) { throw 'A verified producer without policy must retain legacy fanout.' }
-$script:stageEntries=@(@{path='tools/ci/dev-propagation.json';type='blob'})
+$script:stageEntries=@(@{path='tools/ci/dev-propagation.json';type='blob';sha=('8'*40)})
 $script:stagePolicy=@{schema='wss-dev-stage/v1';channel='dev';libraries=@(@{id='matlab';repository=$MatlabWrapperRepository;fanout='dispatch-cli-promotion.yml';applications=@($MatlabCliRepository)})}
 if (!(Test-MatlabStagedProducer $candidate)) { throw 'A staged producer must wait for the Core barrier.' }
 $script:stageDenied=$true
@@ -168,7 +168,7 @@ $step=[regex]::Match($workflow,"(?ms)^      - name: $stepName\r?\n(?<body>.*?)(?
 $validateAt=$workflow.IndexOf('name: Verify actual reviewed wrapper merge')
 $checkAt=$workflow.IndexOf("name: $stepName")
 $tokenAt=$workflow.IndexOf('id: dispatch')
-$postAt=$workflow.IndexOf('name: Dispatch once;')
+$postAt=$workflow.IndexOf('name: Dispatch through common durable-intent sender')
 if (!$step.Success -or $validateAt -lt 0 -or $checkAt -le $validateAt -or $tokenAt -le $checkAt -or $postAt -le $tokenAt -or
     !$step.Groups['body'].Value.Contains("if: github.event_name == 'workflow_dispatch' && steps.validate.outputs.dispatch_needed == 'true'")) {
     throw 'The staged late barrier must gate write credentials after proof validation, preserving legacy/no-op skips.'
@@ -273,3 +273,5 @@ try {
     $global:LASTEXITCODE=0
 }
 Write-Output 'PASS offline MATLAB provenance, exact inventory, hash, correlation and late barrier contracts. No runtime simulation is counted as conformance.'
+
+$global:LASTEXITCODE=0 # Expected shared-validator rejection fixtures completed.
