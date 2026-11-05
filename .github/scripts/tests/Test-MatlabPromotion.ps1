@@ -73,12 +73,12 @@ $script:producerEvent='push'; $script:producerJob='success'; $script:artifactExp
 function Invoke-MatlabGh([string[]]$Arguments) {
     $uri=$Arguments[-1]
     if ($uri -like '*/actions/runs/123') {
-        @{repository=@{full_name=$candidate.repository};head_repository=@{full_name=$candidate.repository};path='.github/workflows/artifacts.yml';head_sha=$candidate.commit;event=$script:producerEvent;head_branch='dev';status='completed';conclusion='success'} | ConvertTo-Json -Depth 4
+        @{repository=@{full_name=$candidate.repository};head_repository=@{full_name=$candidate.repository};path='.github/workflows/artifacts.yml';head_sha=$candidate.commit;event=$script:producerEvent;head_branch='dev';status='completed';conclusion='success';run_attempt=1} | ConvertTo-Json -Depth 4
     } elseif ($uri -like '*/compare/*') { @{status=$script:comparisonStatus} | ConvertTo-Json }
     elseif ($uri -like '*/branches/dev') { @{commit=@{sha=$script:coreHead}} | ConvertTo-Json -Depth 3 }
     elseif ($uri -like '*/jobs*') {
-        $names=@('Build and validate artifacts','Core conformance','Serial consumer (Windows)','Serial consumer (macOS)','Serial consumer (Linux)','BLE consumer (Windows)','BLE consumer (Linux)','Build macOS universal BLE bridge','BLE consumer (macOS x86_64)','BLE consumer (macOS arm64)','Core consumer (Windows)','Core consumer (macOS)','Core consumer (Linux)','Start routine downstream validation')
-        @(@{jobs=@($names | ForEach-Object { @{name=$_;conclusion=$script:producerJob} })}) | ConvertTo-Json -Depth 6 -AsArray
+        $names=@('Build and validate artifacts','Core conformance','Serial consumer (Windows)','Serial consumer (macOS)','Serial consumer (Linux)','BLE consumer (Windows)','BLE consumer (Linux)','Build macOS universal BLE bridge','BLE consumer (macOS x86_64)','BLE consumer (macOS arm64)','Core consumer (Windows)','Core consumer (macOS)','Core consumer (Linux)','Start routine downstream validation','BLE Consumer for Windows','BLE Consumer for Linux','BLE Consumer for Mac')
+        @(@{jobs=@($names | ForEach-Object { @{name=$_;status='completed';conclusion=$script:producerJob} })}) | ConvertTo-Json -Depth 6 -AsArray
     } elseif ($uri -like '*/actions/artifacts/456') {
         @{expired=$script:artifactExpired;name='universal-release-assets';workflow_run=@{id='123';head_sha=$candidate.commit}} | ConvertTo-Json -Depth 4
     } elseif ($uri -like '*/actions/workflows/wss-compatibility.yml/runs*') {
