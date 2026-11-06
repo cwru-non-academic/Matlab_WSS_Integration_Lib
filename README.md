@@ -137,25 +137,12 @@ it is a source port, not the byte-identical NUnit fixture. Native CI executes th
 source port; passing scenarios do not establish byte identity with NUnit.
 Failures are collected across scenarios.
 
-The initial checks ran on MATLAB R2026b (`26.2.0.3386108`) with .NET 8 on Windows:
-managed host checks passed; all 10 catalog scenarios passed through the wrapper
-and all 10 through the CLI factory. All nine MATLAB unit/runtime tests passed,
-including busy-MATLAB tick progression, failed assembly loading, and normal
-CLI quit/command-failure disposal. MATLAB Code Analyzer reported zero findings
-at that checkpoint. These are emulator checks, not physical-device qualification.
-
-The CLI's MATLAB Engine harness passed a quit/interruption/quit sequence with
-a blocking input double, real MATLAB Engine cancellation, background tick
-progress and synchronous disposal/reset checks. Native console `input` and
-keyboard Ctrl+C remain manual checks: the execution tool cannot deliver input
-to the launched MATLAB console. Run `checkBlockedInput` from the `conformance/`
-folder on the MATLAB path, and separately interrupt the CLI with Ctrl+C.
-
-Windows serial runtime and BLE/native ABI load-only compatibility checks also
-passed through both wrapper and CLI compatibility entry points, separately from
-behavioral conformance. No port Open, radio scan, ConnectAsync or stimulation
-operation is used by those checks. Current CI also executes separate Ubuntu and
-macOS compatibility jobs; the results above describe the initial local Windows baseline.
+Native console `input` and keyboard Ctrl+C remain manual checks. Run
+`checkBlockedInput` from the `conformance/` folder on the MATLAB path, and
+separately interrupt the CLI with Ctrl+C. Windows serial runtime and BLE/native
+ABI load-only compatibility checks are separate from behavioral conformance;
+they do not open ports, scan radios, connect, or stimulate. CI also executes
+separate Ubuntu and macOS compatibility jobs.
 
 ## Propagation preparation
 
@@ -273,16 +260,9 @@ match. Ambiguous, expired, failed or uncertain evidence stops publication. Fixtu
 rejection tests and packaged diagnostics are not end-to-end candidate acceptance
 proof. Successful acceptance in another language is not MATLAB evidence.
 
-## Historical validation and provenance
+## MATLAB Engine lifecycle checks
 
-The initial Windows baseline used MATLAB `26.2.0.3386108 (R2026b)` and .NET
-`8.0.29`. The verification results above describe that baseline rather than a later
-candidate. All 25 initial payload hashes matched the Python reference. Historical
-ignored evidence paths were `artifacts/matlab-validation.log`,
-`artifacts/validation.json` and `artifacts/engine-lifecycle.log` in the checkout
-that ran the checks; these are not shipped validation artifacts.
-
-The CLI Engine harness command was:
+The CLI Engine harness command is:
 
 ```powershell
 python ../CLI_Matlab_WSS_Application/tests/engine/check_interactive_lifecycle.py --matlab-root 'C:/Program Files/MATLAB/R2026b' --wrapper-root .
@@ -295,24 +275,6 @@ first assertion; failures aggregate across scenarios. The transient runtime-edit
 pause uses a cancellation-aware emulator send gate, while ordinary commands are
 ungated.
 
-Historical exact identifiers are retained pending the SHA documentation decision:
-
-- The Python reference revision and C# fixture digest remain in Layout and
-  Verification. They identify the original source port and its canonical fixture.
-- `automation/candidates/core-40794719291.json` records Core dev commit
-  `25ee25e519e77be96a918b9b63f3a402c550d631`, run `40794719291`, artifact
-  `12863706436`. It is a historical candidate record, not a dispatch instruction.
-- The packaged macOS diagnostic's source, artifact and archive digest are owned
-  by `.github/scripts/Stage-MacArtifactDiagnostic.ps1`.
-- Initial validation recorded matching MIT license Git blob
-  `99152be7a8c4cc0b25e9c4a17b6eb22e5655ef82` for library and application.
-  Legal terms remain in `LICENSE`.
-
 Operational payload hashes, fixture pins, verifier revisions and artifact tuples
 remain in machine-readable metadata and workflows. They bind exact inputs and
 prevent mutable or substituted evidence; they are not credentials.
-
-`ci/Assert-MatlabCiPrerequisites.ps1` and the disabled workflow source under
-`automation/templates/` are retained historical code. Current workflows do not
-reference them; the self-hosted helper is not the active runner policy. Their
-removal can be reviewed separately from documentation consolidation.
