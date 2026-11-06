@@ -1,6 +1,6 @@
 param([Parameter(Mandatory)][string]$RepositoryRoot,[Parameter(Mandatory)][string]$WorkRoot)
 . "$PSScriptRoot/MatlabPromotion.ps1"
-if ($env:GITHUB_ACTIONS -cne 'true' -or $env:GITHUB_REF -cne 'refs/heads/dev' -or !$env:MATLAB_PUSH_TOKEN) { throw 'Publication requires the trusted dev workflow and delayed scoped token.' }
+if ($env:GITHUB_ACTIONS -cne 'true' -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch' -or $env:GITHUB_REF -cne (Get-WssCiChannelContext).ref -or !$env:MATLAB_PUSH_TOKEN) { throw 'Publication requires the trusted dev workflow and delayed scoped token.' }
 $prepared=Get-Content -LiteralPath (Join-Path $WorkRoot 'prepared.json') -Raw | ConvertFrom-Json
 if ($prepared.no_op) { throw 'No-op preparation must not mint a write token or publish.' }
 $role=$prepared.role
@@ -58,7 +58,7 @@ if($role -cne 'wrapper') {
 }
 if($role -ceq 'wrapper' -and 'matlab' -ceq 'unity'){$body="<!-- wss-unity-promotion:v1 -->`n"+$body}
 [IO.File]::WriteAllText($bodyPath,$body)
-$descriptor=@{target_id="matlab-$role";repository_root=[IO.Path]::GetFullPath($RepositoryRoot);source_sha=$prepared.source_sha;candidate=$approval.candidate;branch=$branch;allowed_paths=@($allowed);markers=$markers;gitlinks=$gitlinks;parent_heads=$parents;body_path=[IO.Path]::GetFullPath($bodyPath);title="Promote verified Matlab WSS $($approval.candidate.run_id)";commit_message="Promote verified Matlab WSS $($approval.candidate.run_id)"}
+$descriptor=@{channel=(Get-WssCiChannel);target_id="matlab-$role";repository_root=[IO.Path]::GetFullPath($RepositoryRoot);source_sha=$prepared.source_sha;candidate=$approval.candidate;branch=$branch;allowed_paths=@($allowed);markers=$markers;gitlinks=$gitlinks;parent_heads=$parents;body_path=[IO.Path]::GetFullPath($bodyPath);title="Promote verified Matlab WSS $($approval.candidate.run_id)";commit_message="Promote verified Matlab WSS $($approval.candidate.run_id)"}
 $descriptorPath=Join-Path $WorkRoot 'publication.json'
 $descriptor|ConvertTo-Json -Depth 16|Set-Content -LiteralPath $descriptorPath
 $saved=$env:WSS_PUSH_TOKEN
