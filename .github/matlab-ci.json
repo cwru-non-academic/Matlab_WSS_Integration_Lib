@@ -19,7 +19,9 @@
     "normalized.1.0",
     "normalized.1.2",
     "runtime-event-edit",
-    "stop-stimulation"
+    "stop-stimulation",
+    "analog.multichannel-isolation",
+    "normalized.multichannel-isolation"
   ],
   "reference_safeguards_commit": "67c9f45362de97e1bb16975a6b58ae521cbc925a",
   "activation_requires": [
@@ -32,5 +34,9 @@
   "channels": [
     "dev",
     "main"
+  ],
+  "multidevice_expected_cases": [
+    "analog.multidevice-isolation",
+    "normalized.multidevice-isolation"
   ]
 }

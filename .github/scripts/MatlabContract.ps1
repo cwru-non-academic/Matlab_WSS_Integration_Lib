@@ -100,7 +100,7 @@ function New-MatlabProjection([string]$ArtifactRoot, [string]$WrapperRoot, [stri
 function Read-MatlabConfig([string]$Path) {
     $config = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
     if ($config.schema -cne 'wss-matlab-ci/v1' -or $config.branch -cne 'dev' -or $config.automated_execution -cne 'matlab-native' -or
-        $config.matlab_release -cne 'R2026b' -or $config.dotnet_sdk -cne '8.0.x' -or $config.expected_cases.Count -ne 10 -or
+        $config.matlab_release -cne 'R2026b' -or $config.dotnet_sdk -cne '8.0.x' -or $config.expected_cases.Count -ne 12 -or
         $config.fixture_repository -cne $MatlabWrapperRepository -or $config.fixture_path -cne 'conformance/runConformance.m') { throw 'Unexpected native MATLAB CI contract.' }
     Assert-MatlabSha $config.fixture_commit
     if ($config.fixture_sha256 -cnotmatch '^[0-9a-f]{64}$') { throw 'Missing native suite digest.' }

@@ -1,21 +1,39 @@
-function results = runConformance(factory, csLibDir)
+function results = runConformance(factory, csLibDir, stage)
 %RUNCONFORMANCE Exercise the production wrapper with Core's canonical catalog.
 % Optional factory enables the consuming CLI to run the same scenarios through
 % its production createController. No hardware or simulated TestMode is used.
 root = fileparts(fileparts(mfilename('fullpath')));
 if nargin < 1, factory = @wss.StimulationController; end
 if nargin < 2, csLibDir = fullfile(root, 'Cs_Libraries'); end
+if nargin < 3, stage = 'single'; end
+assert(ismember(stage, {'single','multi'}), 'Select single or multi conformance stage.');
 % Initialize assembly loading through production code before reading catalog.
 wss.loadRuntime(wss.WssConfig('CsLibDir', csLibDir, 'ConformanceMode', true));
 catalog = Wss.Testing.WssBehaviorScenarios.NormalizedStimulation;
 ids = {'initialization', 'direct-analog'};
 for k = 0:catalog.Count - 1, ids{end + 1} = char(catalog.Item(k).Id); end %#ok<AGROW>
 ids = [ids, {'runtime-event-edit', 'stop-stimulation'}];
+if strcmp(stage, 'single')
+    sequences = Wss.Testing.WssStimulationSequences.SingleDevice;
+    required = {'analog.multichannel-isolation','normalized.multichannel-isolation'};
+else
+    sequences = Wss.Testing.WssStimulationSequences.MultipleDevices;
+    required = {'analog.multidevice-isolation','normalized.multidevice-isolation'};
+end
+sequenceIds = cell(1, listCount(sequences));
+for k = 1:numel(sequenceIds), sequenceIds{k} = char(listItem(sequences, k - 1).Id); end
+assert(isequal(sort(sequenceIds), sort(required)), 'Shared sequence inventory is missing, duplicated or unexpected.');
+legacyCount = numel(ids);
+ids = [ids, sequenceIds];
 results = repmat(struct('Id', '', 'Passed', false, 'Failure', ''), 1, numel(ids));
 for k = 1:numel(ids)
     results(k).Id = ids{k};
     try
-        scenario(factory, csLibDir, k, catalog);
+        if k <= legacyCount
+            scenario(factory, csLibDir, k, catalog);
+        else
+            sequence(factory, csLibDir, listItem(sequences, k - legacyCount - 1));
+        end
         results(k).Passed = true;
     catch failure
         results(k).Failure = getReport(failure, 'extended', 'hyperlinks', 'off');
@@ -25,6 +43,52 @@ end
 if ~all([results.Passed])
     failures = {results(~[results.Passed]).Failure};
     error('wss:ConformanceFailed', '%s', strjoin(failures, newline));
+end
+end
+
+function sequence(factory, payload, item)
+directory = tempname;
+mkdir(directory);
+try
+    item.WriteFixture(directory);
+    config = wss.WssConfig('ConfigPath', directory, 'LogPath', fullfile(directory, 'host.log'), ...
+        'CsLibDir', payload, 'ConformanceMode', true, 'MaxSetupTries', 1, 'TickIntervalMs', 1);
+    controller = factory(config);
+catch failure
+    rmdir(directory, 's'); rethrow(failure);
+end
+cleanup = onCleanup(@() cleanupFixture(controller, directory));
+controller.Initialize();
+conformance = controller.GetConformance();
+assert(~isempty(conformance), 'No Core conformance source.');
+allTargets = false;
+for attempt = 1:3000
+    allTargets = controller.Started();
+    for unit = 1:double(item.DeviceCount)
+        observed = findMessage(conformance.StimulationHistory, @(m) double(m.Target) == 128 + unit);
+        allTargets = allTargets && ~isempty(observed);
+    end
+    if allTargets, break; end
+    pause(0.001);
+end
+assert(allTargets, 'Not all configured targets streamed.');
+steps = item.Steps;
+for k = 0:listCount(steps) - 1
+    step = listItem(steps, k);
+    expected = step.Expectation;
+    baseline = conformance.CaptureStimulationBaseline();
+    if step.Normalized
+        controller.StimulateNormalized(channel(step.GlobalChannel), double(step.Input));
+    else
+        controller.StimulateAnalog(channel(step.GlobalChannel), double(expected.PulseWidth), ...
+            double(expected.PulseAmplitude), double(expected.InterPulseInterval));
+    end
+    for attempt = 1:2000
+        result = Wss.Testing.WssStimulationWindow.Evaluate(conformance, baseline, expected, int32(item.DeviceCount));
+        if result.Settled || listCount(result.Failures) > 0, break; end
+        pause(0.001);
+    end
+    assert(result.Passed, '%s/%s: %s', char(item.Id), char(step.Id), char(result.Diagnostics));
 end
 end
 
@@ -162,7 +226,8 @@ end
 
 function value = channel(index)
 names = {'thumb', 'index', 'middle', 'ring', 'pinky'};
-value = names{double(index)};
+if double(index) <= numel(names), value = names{double(index)};
+else, value = sprintf('ch%d', index); end
 end
 
 function value = target(wireValue)
