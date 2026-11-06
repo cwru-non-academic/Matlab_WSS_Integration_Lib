@@ -10,8 +10,8 @@ function Assert-MatlabProducer($Candidate) {
     Assert-MatlabCandidate $Candidate
     $run=Wait-MatlabRun $Candidate.repository $Candidate.run_id $Candidate.commit 'artifacts.yml' 'push'
     if ($run.run_attempt -lt 1) { throw 'Exact producer attempt is required.' }
-    if ($run.head_branch -cne 'dev' -or $run.head_repository.full_name -cne $Candidate.repository -or $Candidate.archive -cne 'WSS-Universal-ci.zip') { throw 'Automatic Matlab propagation requires the canonical Core dev push archive.' }
-    $compare=Invoke-MatlabGh -Arguments @('api',"repos/$($Candidate.repository)/compare/$($Candidate.commit)...dev") | ConvertFrom-Json
+    if ($run.head_branch -cne (Get-WssCiChannel) -or $run.head_repository.full_name -cne $Candidate.repository -or $Candidate.archive -cne 'WSS-Universal-ci.zip') { throw 'Automatic Matlab propagation requires the canonical Core dev push archive.' }
+    $compare=Invoke-MatlabGh -Arguments @('api',"repos/$($Candidate.repository)/compare/$($Candidate.commit)...$(Get-WssCiChannel)") | ConvertFrom-Json
     if ($compare.status -cnotin @('ahead','identical')) { throw 'Producer commit is not contained in Core dev.' }
     $pages=Invoke-MatlabGh -Arguments @('api','--paginate','--slurp',"repos/$($Candidate.repository)/actions/runs/$($Candidate.run_id)/attempts/$($run.run_attempt)/jobs?per_page=100") | ConvertFrom-Json
     $jobs=@($pages | ForEach-Object { $_.jobs })
@@ -19,10 +19,11 @@ function Assert-MatlabProducer($Candidate) {
     Assert-WssCiProducerJobs $jobs 'macos-ble-v1'
     $artifact=Invoke-MatlabGh -Arguments @('api',"repos/$($Candidate.repository)/actions/artifacts/$($Candidate.artifact_id)") | ConvertFrom-Json
     if ($artifact.expired -or $artifact.name -cne 'universal-release-assets' -or [string]$artifact.workflow_run.id -cne [string]$Candidate.run_id -or $artifact.workflow_run.head_sha -cne $Candidate.commit) { throw 'Wrong/expired producer artifact.' }
+    if((Get-WssCiChannel) -ceq 'main'){if($compare.status -cne 'identical'){throw 'Core main moved from exact candidate.'};$proof=Assert-WssCiWorkflowAuthorization ([string]$Candidate.run_id);Assert-MatlabSameCandidate $proof.candidate $Candidate}
 }
 
 function Get-MatlabHead([string]$Repository) {
-    $branch=Invoke-MatlabGh -Arguments @('api',"repos/$Repository/branches/dev") | ConvertFrom-Json
+    $branch=Invoke-MatlabGh -Arguments @('api',"repos/$Repository/branches/$(Get-WssCiChannel)") | ConvertFrom-Json
     Assert-MatlabSha $branch.commit.sha
     $branch.commit.sha
 }
@@ -161,7 +162,7 @@ function Get-MatlabReviewedPullRequestRun($PullRequest) {
         if ($links.Count -ne 1 -or $links[0].state -cne 'closed' -or $links[0].merged_at -cne $PullRequest.merged_at -or
             $links[0].merge_commit_sha -cne $PullRequest.merge_commit_sha -or $links[0].head.sha -cne $PullRequest.head.sha -or
             $links[0].head.ref -cne $PullRequest.head.ref -or $links[0].head.repo.full_name -cne $MatlabWrapperRepository -or
-            $links[0].base.ref -cne 'dev' -or $links[0].base.repo.full_name -cne $MatlabWrapperRepository) { throw 'Missing, ambiguous or mismatched reviewed head-to-PR association.' }
+            $links[0].base.ref -cne (Get-WssCiChannel) -or $links[0].base.repo.full_name -cne $MatlabWrapperRepository) { throw 'Missing, ambiguous or mismatched reviewed head-to-PR association.' }
     }
     if ($links.Count -ne 1 -or [string]$links[0].number -cne [string]$PullRequest.number) { throw 'Normal CI is not uniquely associated with the reviewed PR.' }
     return $run
@@ -172,10 +173,10 @@ function Assert-MatlabMergedWrapper([string]$Sha,[string]$PrNumber,$Approval) {
     if ($PrNumber -cnotmatch '^[1-9][0-9]*$') { throw 'Invalid wrapper PR number.' }
     $pr=Invoke-MatlabGh -Arguments @('api',"repos/$MatlabWrapperRepository/pulls/$PrNumber") | ConvertFrom-Json
     Assert-MatlabHumanMerge $pr
-    if (!$pr.merged -or $pr.merge_commit_sha -cne $Sha -or $pr.base.ref -cne 'dev' -or $pr.base.repo.full_name -cne $MatlabWrapperRepository -or
+    if (!$pr.merged -or $pr.merge_commit_sha -cne $Sha -or $pr.base.ref -cne (Get-WssCiChannel) -or $pr.base.repo.full_name -cne $MatlabWrapperRepository -or
         $pr.head.repo.full_name -cne $MatlabWrapperRepository -or $pr.user.type -cne 'Bot') { throw 'Wrapper must be the actual reviewed same-repository bot PR merge into dev.' }
     if ($pr.head.ref -cne "automation/matlab-wss-$($Approval.candidate.run_id)-$($Approval.candidate.sha256)") { throw 'Merged wrapper PR is not the canonical candidate branch.' }
-    $compare=Invoke-MatlabGh -Arguments @('api',"repos/$MatlabWrapperRepository/compare/${Sha}...dev") | ConvertFrom-Json
+    $compare=Invoke-MatlabGh -Arguments @('api',"repos/$MatlabWrapperRepository/compare/${Sha}...$(Get-WssCiChannel)") | ConvertFrom-Json
     if ($compare.status -cnotin @('ahead','identical')) { throw 'Wrapper merge is not contained in dev.' }
     $delta=Invoke-MatlabGh -Arguments @('api',"repos/$MatlabWrapperRepository/compare/$($Approval.wrapper.source_sha)...$Sha") | ConvertFrom-Json
     if ($delta.total_commits -lt 1 -or $delta.files.Count -ge 300) { throw 'Wrapper comparison empty or potentially truncated.' }
@@ -267,7 +268,7 @@ function Get-MatlabEvidence([string]$Repository,[string]$RunId,[string]$SourceSh
     $expectedRepository=if ($Role -ceq 'wrapper') { $MatlabWrapperRepository } else { (Get-MatlabApplication $Role).repository }
     if ($Repository -cne $expectedRepository) { throw 'Role/repository evidence mismatch.' }
     $run=Wait-MatlabRun $Repository $RunId $SourceSha 'wss-preflight.yml' 'workflow_dispatch'
-    if ($run.head_branch -cne 'dev') { throw 'Preflight must execute trusted dev source.' }
+    if ($run.head_branch -cne (Get-WssCiChannel)) { throw 'Preflight must execute trusted dev source.' }
     $pages=Invoke-MatlabGh -Arguments @('api','--paginate','--slurp',"repos/$Repository/actions/runs/$RunId/attempts/$($run.run_attempt)/jobs?per_page=100") | ConvertFrom-Json
     $prefix=if ($Role -ceq 'wrapper') { 'Preflight' } else { 'CLI preflight' }
     foreach ($name in @("$prefix behavioral tests","$prefix compatibility (Windows)","$prefix compatibility (Ubuntu)","$prefix compatibility (macOS)")) {

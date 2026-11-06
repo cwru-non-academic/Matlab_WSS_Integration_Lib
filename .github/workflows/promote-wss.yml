@@ -3,32 +3,53 @@ run-name: Promote universal WSS / wss-${{ fromJSON(inputs.candidate_json).run_id
 on:
   workflow_dispatch:
     inputs:
-      candidate_json: {description: Exact canonical Core dev producer tuple, required: true, type: string}
+      candidate_json: {description: Exact Core producer tuple, required: true, type: string}
+env:
+  WSS_CI_CHANNEL: ${{ github.ref_name }}
+  WSS_TARGET_ROOT: ${{ github.workspace }}/source
+  WSS_CORE_TOOLS_ROOT: ${{ github.workspace }}/workflow-guard
 permissions:
   contents: read
 concurrency:
-  group: matlab-promote-wrapper-dev
+  group: matlab-promote-wrapper-${{ github.ref_name }}
   cancel-in-progress: false
 jobs:
   promote:
     if: vars.WSS_MATLAB_PROPAGATION_ENABLED == 'true'
-    name: Create verified dependency PR
+    name: Create WSS promotion PR
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Require trusted target event
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -cnotin @('refs/heads/dev','refs/heads/main') -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch') { throw 'Only registered target branch dispatch is accepted.' }
       - uses: actions/checkout@v4
         with:
           path: source
           fetch-depth: 0
           persist-credentials: false
-      - name: Require enabled baseline and trusted dev workflow
+      - name: Read locked Core guard source
+        id: guard
         shell: pwsh
         run: |
-          $config=Get-Content source/.github/matlab-ci.json -Raw | ConvertFrom-Json
-          if (!$config.baseline_ready -or $env:GITHUB_REF -cne 'refs/heads/dev' -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch') { throw 'Native candidate promotion activation remains pending.' }
+          $lock=Get-Content source/.github/scripts/wss-ci.lock.json -Raw|ConvertFrom-Json
+          if($lock.source_repository -cne 'cwru-non-academic/WSSCore' -or $lock.source_commit -cnotmatch '^[a-f0-9]{40}$' -or $lock.source_ref -cne "refs/heads/ci/tooling/$($lock.source_commit)"){throw 'Invalid immutable Core guard lock.'}
+          "commit=$($lock.source_commit)" >> $env:GITHUB_OUTPUT
+      - uses: actions/checkout@v4
+        with:
+          repository: cwru-non-academic/WSSCore
+          ref: ${{ steps.guard.outputs.commit }}
+          path: workflow-guard
+          persist-credentials: false
+      - name: Require candidate-promotion baseline approval
+        shell: pwsh
+        run: |
+          $config = Get-Content source/.github/matlab-ci.json -Raw | ConvertFrom-Json
+          if (!$config.baseline_ready) { throw 'Candidate-promotion baseline approval remains pending; Matlab via native MATLAB CI does not authorize promotion.' }
       - uses: actions/create-github-app-token@v2
         id: read
         with:
@@ -42,13 +63,14 @@ jobs:
           permission-contents: read
           permission-actions: read
           permission-pull-requests: read
-      - name: Validate producer and no-op before dispatch credentials
+      - name: Validate producer, candidate projection and no-op before dispatch credentials
         id: candidate
         shell: pwsh
         env:
           GH_TOKEN: ${{ steps.read.outputs.token }}
           CANDIDATE_JSON: ${{ inputs.candidate_json }}
-        run: ./source/.github/scripts/Prepare-MatlabPromotion.ps1 -Role wrapper -RepositoryRoot "$env:GITHUB_WORKSPACE/source" -WorkRoot "$env:RUNNER_TEMP/matlab-validation" -CandidateJson $env:CANDIDATE_JSON -ValidateOnly
+        run: |
+          ./source/.github/scripts/Prepare-MatlabPromotion.ps1 -Role wrapper -RepositoryRoot "$env:GITHUB_WORKSPACE/source" -WorkRoot "$env:RUNNER_TEMP/matlab-validation" -CandidateJson $env:CANDIDATE_JSON -ValidateOnly
       - uses: actions/create-github-app-token@v2
         if: steps.candidate.outputs.no_op == 'false'
         id: preflight
@@ -60,17 +82,20 @@ jobs:
             Matlab_WSS_Integration_Lib
             CLI_Matlab_WSS_Application
           permission-actions: write
-      - name: Require exact source-bound native preflights
-        id: prepare
+
+      - name: Verify exact candidate, both runtime preflights and sources
         if: steps.candidate.outputs.no_op == 'false'
+        id: prepare
         shell: pwsh
         env:
           GH_TOKEN: ${{ steps.read.outputs.token }}
           MATLAB_PREFLIGHT_TOKEN: ${{ steps.preflight.outputs.token }}
           CANDIDATE_JSON: ${{ inputs.candidate_json }}
-        run: ./source/.github/scripts/Prepare-MatlabPromotion.ps1 -Role wrapper -RepositoryRoot "$env:GITHUB_WORKSPACE/source" -WorkRoot "$env:RUNNER_TEMP/matlab-promotion" -CandidateJson $env:CANDIDATE_JSON
-      - uses: actions/create-github-app-token@v2
+        run: |
+          ./source/.github/scripts/Prepare-MatlabPromotion.ps1 -Role wrapper -RepositoryRoot "$env:GITHUB_WORKSPACE/source" -WorkRoot "$env:RUNNER_TEMP/matlab-promotion" -CandidateJson $env:CANDIDATE_JSON
+      - name: Mint target-only write token after validation
         if: steps.prepare.outputs.no_op == 'false'
+        uses: actions/create-github-app-token@v2
         id: write
         with:
           app-id: ${{ vars.WSS_GITHUB_APP_ID }}

@@ -200,7 +200,9 @@ function gh {
     }
 }
 function git { $global:LASTEXITCODE=0; if ('rev-parse' -cin $args) { $script:lateCore } }
+$global:wssMatlabLateRealNode=(Get-Command node -CommandType Application).Source
 function node {
+    if($args[0] -cmatch '(channels|staging)\.mjs$'){ & $global:wssMatlabLateRealNode @args;return }
     $script:lateCalls++
     if (($args[1..4] -join ',') -cne 'verify-barrier,123,456,1') { throw 'Late barrier changed producer/correlation inputs.' }
     $global:LASTEXITCODE=if ($script:lateInvalid) {1} else {0}

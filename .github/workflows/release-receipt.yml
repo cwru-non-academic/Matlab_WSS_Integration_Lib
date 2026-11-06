@@ -5,6 +5,10 @@ on:
     inputs:
       producer_run_id: {required: true, type: string}
       plan_id: {required: true, type: string}
+env:
+  WSS_CI_CHANNEL: ${{ github.ref_name }}
+  WSS_TARGET_ROOT: ${{ github.workspace }}/source
+  WSS_CORE_TOOLS_ROOT: ${{ github.workspace }}/contract
 permissions:
   contents: read
   actions: read
@@ -27,12 +31,12 @@ jobs:
         shell: pwsh
         run: |
           $config=Get-Content source/.github/matlab-ci.json -Raw | ConvertFrom-Json
-          if ($env:GITHUB_REF -cne 'refs/heads/dev' -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch' -or $config.baseline_ready -cne $true -or $config.candidate_preflight_ready -cne $true) { throw 'Live MATLAB acceptance remains disabled.' }
+          if ($env:GITHUB_REF -cnotin @('refs/heads/dev','refs/heads/main') -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch' -or $config.baseline_ready -cne $true -or $config.candidate_preflight_ready -cne $true) { throw 'Live MATLAB acceptance remains disabled.' }
 
       - uses: actions/checkout@v4
         with:
           repository: cwru-non-academic/WSSCore
-          ref: 83d77fb184b1de92164fa73272630d07749077d2
+          ref: d965f6abda5dcad8ddda374ac00b67f5e5ddea91
           path: contract
           persist-credentials: false
       - uses: actions/setup-node@v4
