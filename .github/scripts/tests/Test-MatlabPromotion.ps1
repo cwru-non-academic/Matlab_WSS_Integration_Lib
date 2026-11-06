@@ -200,7 +200,12 @@ function gh {
     }
 }
 function git { $global:LASTEXITCODE=0; if ('rev-parse' -cin $args) { $script:lateCore } }
-$global:wssMatlabLateRealNode=(Get-Command node -CommandType Application).Source
+$nativeNodePath=@(& node --print process.execPath)
+if($LASTEXITCODE -ne 0 -or $nativeNodePath.Count -ne 1 -or $nativeNodePath[0] -isnot [string] -or
+   ![IO.Path]::IsPathFullyQualified($nativeNodePath[0]) -or !(Test-Path -LiteralPath $nativeNodePath[0] -PathType Leaf)){
+    throw 'Late-barrier fixture requires one successfully resolved absolute Node executable.'
+}
+$global:wssMatlabLateRealNode=$nativeNodePath[0]
 function node {
     if($args[0] -cmatch '(channels|staging)\.mjs$'){ & $global:wssMatlabLateRealNode @args;return }
     $script:lateCalls++
