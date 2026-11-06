@@ -6,9 +6,9 @@
   "matlab_release": "R2026b",
   "dotnet_sdk": "8.0.x",
   "fixture_repository": "cwru-non-academic/Matlab_WSS_Integration_Lib",
-  "fixture_commit": "0467d92de6a1de4c8207fe83a8ae392309352574",
+  "fixture_commit": "e06741efd41415762cb6e850740b382f7098f7dd",
   "fixture_path": "conformance/runConformance.m",
-  "fixture_sha256": "ee1063d323a5e02611833f95d71348fc7dfc9cdc4b10c45b6e03dcbc53fcaca0",
+  "fixture_sha256": "62ec9d9a36602081b3e9bb40221d0bc7ba14ca6047180edde9c6d156fabe257c",
   "expected_cases": [
     "initialization",
     "direct-analog",
