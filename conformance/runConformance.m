@@ -15,11 +15,19 @@ for k = 0:catalog.Count - 1, ids{end + 1} = char(catalog.Item(k).Id); end %#ok<A
 ids = [ids, {'runtime-event-edit', 'stop-stimulation'}];
 if strcmp(stage, 'single')
     sequences = Wss.Testing.WssStimulationSequences.SingleDevice;
-    required = {'analog.multichannel-isolation','normalized.multichannel-isolation'};
+    layered = Wss.Testing.WssStimulationSequences.LayeredSingleDevice;
+    required = {'analog.multichannel-isolation','normalized.multichannel-isolation', ...
+        'modeled.p.pw.single','modeled.p.pa.single','modeled.pd.pw.single','modeled.pd.pa.single'};
 else
     sequences = Wss.Testing.WssStimulationSequences.MultipleDevices;
-    required = {'analog.multidevice-isolation','normalized.multidevice-isolation'};
+    layered = Wss.Testing.WssStimulationSequences.LayeredMultipleDevices;
+    required = {'analog.multidevice-isolation','normalized.multidevice-isolation', ...
+        'modeled.p.pw.multi','modeled.p.pa.multi','modeled.pd.pw.multi','modeled.pd.pa.multi'};
 end
+baseSequences = sequences;
+sequences = cell(1, listCount(baseSequences) + listCount(layered));
+for k = 1:listCount(baseSequences), sequences{k} = listItem(baseSequences, k - 1); end
+for k = 1:listCount(layered), sequences{listCount(baseSequences) + k} = listItem(layered, k - 1); end
 sequenceIds = cell(1, listCount(sequences));
 for k = 1:numel(sequenceIds), sequenceIds{k} = char(listItem(sequences, k - 1).Id); end
 assert(isequal(sort(sequenceIds), sort(required)), 'Shared sequence inventory is missing, duplicated or unexpected.');
@@ -77,7 +85,15 @@ for k = 0:listCount(steps) - 1
     step = listItem(steps, k);
     expected = step.Expectation;
     baseline = conformance.CaptureStimulationBaseline();
-    if step.Normalized
+    step.PrepareReload(directory);
+    if step.ReloadParameters, controller.LoadParamsJson(); end
+    if step.ReloadModel
+        modelController = controller.GetModelConfigCTRL();
+        modelController.LoadModelJson();
+    end
+    if step.Modeled
+        controller.StimWithMode(channel(step.GlobalChannel), double(step.Input));
+    elseif step.Normalized
         controller.StimulateNormalized(channel(step.GlobalChannel), double(step.Input));
     else
         controller.StimulateAnalog(channel(step.GlobalChannel), double(expected.PulseWidth), ...
@@ -246,11 +262,13 @@ if isempty(value), value = 'Core conformance failed without diagnostics.'; end
 end
 
 function count = listCount(items)
-if isa(items, 'System.Array'), count = double(items.Length); else, count = double(items.Count); end
+if iscell(items), count = numel(items);
+elseif isa(items, 'System.Array'), count = double(items.Length); else, count = double(items.Count); end
 end
 
 function item = listItem(items, zeroBasedIndex)
-if isa(items, 'System.Array'), item = items(zeroBasedIndex + 1); else, item = items.Item(zeroBasedIndex); end
+if iscell(items), item = items{zeroBasedIndex + 1};
+elseif isa(items, 'System.Array'), item = items(zeroBasedIndex + 1); else, item = items.Item(zeroBasedIndex); end
 end
 
 function writeFixture(directory)

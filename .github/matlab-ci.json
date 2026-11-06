@@ -21,7 +21,11 @@
     "runtime-event-edit",
     "stop-stimulation",
     "analog.multichannel-isolation",
-    "normalized.multichannel-isolation"
+    "normalized.multichannel-isolation",
+    "modeled.p.pw.single",
+    "modeled.p.pa.single",
+    "modeled.pd.pw.single",
+    "modeled.pd.pa.single"
   ],
   "reference_safeguards_commit": "67c9f45362de97e1bb16975a6b58ae521cbc925a",
   "activation_requires": [
@@ -37,6 +41,10 @@
   ],
   "multidevice_expected_cases": [
     "analog.multidevice-isolation",
-    "normalized.multidevice-isolation"
+    "normalized.multidevice-isolation",
+    "modeled.p.pw.multi",
+    "modeled.p.pa.multi",
+    "modeled.pd.pw.multi",
+    "modeled.pd.pa.multi"
   ]
 }
