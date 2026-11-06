@@ -13,7 +13,7 @@ if ($env:GITHUB_EVENT_NAME -ceq 'workflow_dispatch') {
     $pr=$event.pull_request
 } else { throw 'Only a reviewed merge event or trusted main barrier resume is supported.' }
 Assert-MatlabHumanMerge $pr
-if (!$pr.merged -or $pr.base.ref -cne 'dev' -or $pr.head.repo.full_name -cne $MatlabWrapperRepository -or $pr.user.type -cne 'Bot' -or $pr.head.ref -cnotlike 'automation/matlab-wss-*') { throw 'Not a reviewed Matlab dependency promotion.' }
+if (!$pr.merged -or $pr.base.ref -cne (Get-WssCiChannel) -or $pr.head.repo.full_name -cne $MatlabWrapperRepository -or $pr.user.type -cne 'Bot' -or $pr.head.ref -cnotlike 'automation/matlab-wss-*') { throw 'Not a reviewed Matlab dependency promotion.' }
 if (Test-Path -LiteralPath $WorkRoot) { throw 'Dispatcher workspace must be new.' }
 New-Item -ItemType Directory -Path $WorkRoot | Out-Null
 $approval=Read-MatlabApprovalMarker $pr.body (Join-Path $WorkRoot 'approval.json')
@@ -30,7 +30,7 @@ if ($staged -and !$barrier) {
     exit 0
 }
 if (!$staged -and $barrier) { throw 'Barrier resume cannot substitute for a legacy producer merge event.' }
-$body=@{ref='dev';inputs=@{wrapper_sha=$pr.merge_commit_sha;wrapper_pr=[string]$pr.number;approval_json=($approval | ConvertTo-Json -Depth 8 -Compress)}} | ConvertTo-Json -Depth 6 -Compress
+$body=@{ref=(Get-WssCiChannel);inputs=@{wrapper_sha=$pr.merge_commit_sha;wrapper_pr=[string]$pr.number;approval_json=($approval | ConvertTo-Json -Depth 8 -Compress)}} | ConvertTo-Json -Depth 6 -Compress
 $pages=Invoke-MatlabGh -Arguments @('api','--paginate','--slurp',"repos/$($application.repository)/actions/workflows/promote-integration.yml/runs?event=workflow_dispatch&per_page=100") | ConvertFrom-Json
 $existing=@($pages | ForEach-Object { $_.workflow_runs } | Where-Object { $_.display_title -ceq "Promote Integration $($pr.merge_commit_sha) / wss-$($approval.candidate.run_id)-$($approval.candidate.artifact_id)" })
 . "$PSScriptRoot/wss-ci/DispatchProof.ps1"

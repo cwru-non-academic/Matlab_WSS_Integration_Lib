@@ -7,6 +7,10 @@ on:
       wrapper_sha: {required: true, type: string}
       cli_sha: {required: true, type: string}
       correlation_id: {required: true, type: string}
+env:
+  WSS_CI_CHANNEL: ${{ github.ref_name }}
+  WSS_TARGET_ROOT: ${{ github.workspace }}/source
+  WSS_CORE_TOOLS_ROOT: ${{ github.workspace }}/workflow-guard
 permissions:
   contents: read
 concurrency:
@@ -26,7 +30,7 @@ jobs:
         shell: pwsh
         run: |
           $config=Get-Content source/.github/matlab-ci.json -Raw | ConvertFrom-Json
-          if ($config.candidate_preflight_ready -cne $true -or $env:GITHUB_REF -cne 'refs/heads/dev' -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch') { throw 'Read-only native candidate preflight approval remains pending; promotion is separate.' }
+          if ($config.candidate_preflight_ready -cne $true -or $env:GITHUB_REF -cnotin @('refs/heads/dev','refs/heads/main') -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch') { throw 'Read-only native candidate preflight approval remains pending; promotion is separate.' }
       - name: Validate source refs before checking out or executing nominated source
         shell: pwsh
         env:
@@ -36,7 +40,7 @@ jobs:
         run: |
           foreach ($pair in @(@('Matlab_WSS_Integration_Lib',$env:WRAPPER_SHA),@('CLI_Matlab_WSS_Application',$env:CLI_SHA))) {
             if ($pair[1] -cnotmatch '^[0-9a-f]{40}$') { throw 'Full source SHA required.' }
-            $actual=gh api "repos/cwru-non-academic/$($pair[0])/branches/dev" --jq '.commit.sha'
+            $actual=gh api "repos/cwru-non-academic/$($pair[0])/branches/$env:WSS_CI_CHANNEL" --jq '.commit.sha'
             if ($LASTEXITCODE -ne 0 -or $actual -cne $pair[1]) { throw 'Nominated source is not current trusted dev.' }
           }
           $own=if ('wrapper' -ceq 'wrapper') { $env:WRAPPER_SHA } else { $env:CLI_SHA }
@@ -64,6 +68,19 @@ jobs:
           repository: cwru-non-academic/CLI_Matlab_WSS_Application
           ref: ${{ inputs.cli_sha }}
           path: cli
+          persist-credentials: false
+      - name: Read locked Core guard source
+        id: guard
+        shell: pwsh
+        run: |
+          $lock=Get-Content source/.github/scripts/wss-ci.lock.json -Raw|ConvertFrom-Json
+          if($lock.source_repository -cne 'cwru-non-academic/WSSCore' -or $lock.source_commit -cnotmatch '^[a-f0-9]{40}$' -or $lock.source_ref -cne "refs/heads/ci/tooling/$($lock.source_commit)"){throw 'Invalid immutable Core guard lock.'}
+          "commit=$($lock.source_commit)" >> $env:GITHUB_OUTPUT
+      - uses: actions/checkout@v4
+        with:
+          repository: cwru-non-academic/WSSCore
+          ref: ${{ steps.guard.outputs.commit }}
+          path: workflow-guard
           persist-credentials: false
       - name: Validate immutable producer and stage exact DLL projection
         shell: pwsh
@@ -108,7 +125,7 @@ jobs:
         shell: pwsh
         run: |
           $config=Get-Content source/.github/matlab-ci.json -Raw | ConvertFrom-Json
-          if ($config.candidate_preflight_ready -cne $true -or $env:GITHUB_REF -cne 'refs/heads/dev' -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch') { throw 'Read-only native candidate preflight approval remains pending; promotion is separate.' }
+          if ($config.candidate_preflight_ready -cne $true -or $env:GITHUB_REF -cnotin @('refs/heads/dev','refs/heads/main') -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch') { throw 'Read-only native candidate preflight approval remains pending; promotion is separate.' }
       - name: Validate source refs before checking out or executing nominated source
         shell: pwsh
         env:
@@ -118,7 +135,7 @@ jobs:
         run: |
           foreach ($pair in @(@('Matlab_WSS_Integration_Lib',$env:WRAPPER_SHA),@('CLI_Matlab_WSS_Application',$env:CLI_SHA))) {
             if ($pair[1] -cnotmatch '^[0-9a-f]{40}$') { throw 'Full source SHA required.' }
-            $actual=gh api "repos/cwru-non-academic/$($pair[0])/branches/dev" --jq '.commit.sha'
+            $actual=gh api "repos/cwru-non-academic/$($pair[0])/branches/$env:WSS_CI_CHANNEL" --jq '.commit.sha'
             if ($LASTEXITCODE -ne 0 -or $actual -cne $pair[1]) { throw 'Nominated source is not current trusted dev.' }
           }
           $own=if ('wrapper' -ceq 'wrapper') { $env:WRAPPER_SHA } else { $env:CLI_SHA }
@@ -146,6 +163,19 @@ jobs:
           repository: cwru-non-academic/CLI_Matlab_WSS_Application
           ref: ${{ inputs.cli_sha }}
           path: cli
+          persist-credentials: false
+      - name: Read locked Core guard source
+        id: guard
+        shell: pwsh
+        run: |
+          $lock=Get-Content source/.github/scripts/wss-ci.lock.json -Raw|ConvertFrom-Json
+          if($lock.source_repository -cne 'cwru-non-academic/WSSCore' -or $lock.source_commit -cnotmatch '^[a-f0-9]{40}$' -or $lock.source_ref -cne "refs/heads/ci/tooling/$($lock.source_commit)"){throw 'Invalid immutable Core guard lock.'}
+          "commit=$($lock.source_commit)" >> $env:GITHUB_OUTPUT
+      - uses: actions/checkout@v4
+        with:
+          repository: cwru-non-academic/WSSCore
+          ref: ${{ steps.guard.outputs.commit }}
+          path: workflow-guard
           persist-credentials: false
       - name: Validate immutable producer and stage exact DLL projection
         shell: pwsh
@@ -187,7 +217,7 @@ jobs:
         shell: pwsh
         run: |
           $config=Get-Content source/.github/matlab-ci.json -Raw | ConvertFrom-Json
-          if ($config.candidate_preflight_ready -cne $true -or $env:GITHUB_REF -cne 'refs/heads/dev' -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch') { throw 'Read-only native candidate preflight approval remains pending; promotion is separate.' }
+          if ($config.candidate_preflight_ready -cne $true -or $env:GITHUB_REF -cnotin @('refs/heads/dev','refs/heads/main') -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch') { throw 'Read-only native candidate preflight approval remains pending; promotion is separate.' }
       - name: Validate source refs before checking out or executing nominated source
         shell: pwsh
         env:
@@ -197,7 +227,7 @@ jobs:
         run: |
           foreach ($pair in @(@('Matlab_WSS_Integration_Lib',$env:WRAPPER_SHA),@('CLI_Matlab_WSS_Application',$env:CLI_SHA))) {
             if ($pair[1] -cnotmatch '^[0-9a-f]{40}$') { throw 'Full source SHA required.' }
-            $actual=gh api "repos/cwru-non-academic/$($pair[0])/branches/dev" --jq '.commit.sha'
+            $actual=gh api "repos/cwru-non-academic/$($pair[0])/branches/$env:WSS_CI_CHANNEL" --jq '.commit.sha'
             if ($LASTEXITCODE -ne 0 -or $actual -cne $pair[1]) { throw 'Nominated source is not current trusted dev.' }
           }
           $own=if ('wrapper' -ceq 'wrapper') { $env:WRAPPER_SHA } else { $env:CLI_SHA }
@@ -225,6 +255,19 @@ jobs:
           repository: cwru-non-academic/CLI_Matlab_WSS_Application
           ref: ${{ inputs.cli_sha }}
           path: cli
+          persist-credentials: false
+      - name: Read locked Core guard source
+        id: guard
+        shell: pwsh
+        run: |
+          $lock=Get-Content source/.github/scripts/wss-ci.lock.json -Raw|ConvertFrom-Json
+          if($lock.source_repository -cne 'cwru-non-academic/WSSCore' -or $lock.source_commit -cnotmatch '^[a-f0-9]{40}$' -or $lock.source_ref -cne "refs/heads/ci/tooling/$($lock.source_commit)"){throw 'Invalid immutable Core guard lock.'}
+          "commit=$($lock.source_commit)" >> $env:GITHUB_OUTPUT
+      - uses: actions/checkout@v4
+        with:
+          repository: cwru-non-academic/WSSCore
+          ref: ${{ steps.guard.outputs.commit }}
+          path: workflow-guard
           persist-credentials: false
       - name: Validate immutable producer and stage exact DLL projection
         shell: pwsh

@@ -8,11 +8,12 @@ param(
     [Parameter(Mandatory)][string]$CliSha
 )
 . "$PSScriptRoot/MatlabPromotion.ps1"
-if ($env:GITHUB_ACTIONS -cne 'true' -or $env:GITHUB_REF -cne 'refs/heads/dev' -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch') { throw 'Only trusted dev dispatch may stage a candidate.' }
+if ($env:GITHUB_ACTIONS -cne 'true' -or $env:GITHUB_REF -cne (Get-WssCiChannelContext).ref -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch') { throw 'Only trusted dev dispatch may stage a candidate.' }
 $own=if ($Role -ceq 'wrapper') { $WrapperRoot } else { $CliRoot }
 $source=if ($Role -ceq 'wrapper') { $WrapperSha } else { $CliSha }
 $repository=if ($Role -ceq 'wrapper') { $MatlabWrapperRepository } else { $MatlabCliRepository }
 if ($env:GITHUB_REPOSITORY -cne $repository -or $env:GITHUB_SHA -cne $source) { throw 'Workflow/source identity mismatch.' }
+if((Get-WssCiChannel) -ceq 'main' -and ($env:GITHUB_WORKFLOW_SHA -cne $source -or $env:GITHUB_WORKFLOW_REF -cne "$repository/.github/workflows/wss-preflight.yml@refs/heads/main")){throw 'Main preflight must execute its exact registered receiver source.'}
 $config=Read-MatlabConfig (Join-Path $own '.github/matlab-ci.json')
 if ($config.candidate_preflight_ready -cne $true) { throw 'Read-only candidate preflight approval remains pending; promotion is separate.' }
 Assert-MatlabSource $WrapperRoot $WrapperSha
