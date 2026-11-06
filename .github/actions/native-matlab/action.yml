@@ -10,6 +10,12 @@ inputs:
   purpose:
     description: behavioral/general or compatibility
     required: true
+  matlab-release:
+    description: R2026b, or R2025b only for native Intel Mac compatibility
+    default: R2026b
+  expected-platform:
+    description: Optional native MATLAB computer identity, MACA64 or MACI64
+    default: ''
 runs:
   using: composite
   steps:
@@ -20,6 +26,8 @@ runs:
         NATIVE_ROOT: ${{ inputs.root }}
         NATIVE_ROLE: ${{ inputs.role }}
         NATIVE_PURPOSE: ${{ inputs.purpose }}
+        NATIVE_RELEASE: ${{ inputs.matlab-release }}
+        NATIVE_PLATFORM: ${{ inputs.expected-platform }}
       run: |
         $ErrorActionPreference='Stop'
         $workspace=[IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
@@ -29,6 +37,11 @@ runs:
         if ($env:NATIVE_ROLE -cnotin @('wrapper','cli')) { throw 'Unknown native role.' }
         $behavior=if ($env:NATIVE_ROLE -ceq 'wrapper') { 'behavioral' } else { 'general' }
         if ($env:NATIVE_PURPOSE -cnotin @($behavior,'compatibility')) { throw 'Wrong native validation purpose.' }
+        if ($env:NATIVE_PLATFORM -cnotin @('','MACA64','MACI64')) { throw 'Unknown native MATLAB platform.' }
+        $intel=$env:NATIVE_PLATFORM -ceq 'MACI64'
+        if (($intel -and ($env:NATIVE_RELEASE -cne 'R2025b' -or $env:NATIVE_PURPOSE -cne 'compatibility' -or $env:RUNNER_ARCH -cne 'X64')) -or
+            (!$intel -and $env:NATIVE_RELEASE -cne 'R2026b') -or
+            ($env:NATIVE_PLATFORM -ceq 'MACA64' -and $env:RUNNER_ARCH -cne 'ARM64')) { throw 'Wrong native architecture/release; canonical proof remains R2026b.' }
         $hostRoot=if ($env:NATIVE_ROLE -ceq 'wrapper') { $root } else { Join-Path $root 'external/wss-matlab-wrapper' }
         "root=$root" >> $env:GITHUB_OUTPUT
         "host=$hostRoot" >> $env:GITHUB_OUTPUT
@@ -52,12 +65,14 @@ runs:
         if ($LASTEXITCODE -ne 0) { throw 'Managed tick host checks failed.' }
     - uses: matlab-actions/setup-matlab@v3
       with:
-        release: R2026b
+        release: ${{ inputs.matlab-release }}
     - name: Run native production MATLAB checks
       uses: matlab-actions/run-command@v3
       env:
         WSS_CI_ROOT: ${{ steps.paths.outputs.root }}
         WSS_CI_ROLE: ${{ inputs.role }}
         WSS_CI_PURPOSE: ${{ inputs.purpose }}
+        WSS_CI_PLATFORM: ${{ inputs.expected-platform }}
+        WSS_CI_RELEASE: ${{ inputs.matlab-release }}
       with:
-        command: addpath(fullfile(getenv('WSS_CI_ROOT'),'ci')); if strcmp(getenv('WSS_CI_ROLE'),'wrapper'), runWrapperCi(getenv('WSS_CI_PURPOSE')); else, runCliCi(getenv('WSS_CI_PURPOSE')); end
+        command: assert(strcmp(['R',version('-release')],getenv('WSS_CI_RELEASE')),'Wrong MATLAB release'); if ~isempty(getenv('WSS_CI_PLATFORM')), assert(strcmp(computer,getenv('WSS_CI_PLATFORM')),'Wrong native MATLAB architecture'); end; addpath(fullfile(getenv('WSS_CI_ROOT'),'ci')); if strcmp(getenv('WSS_CI_ROLE'),'wrapper'), runWrapperCi(getenv('WSS_CI_PURPOSE')); else, runCliCi(getenv('WSS_CI_PURPOSE')); end

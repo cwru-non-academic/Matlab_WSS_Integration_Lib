@@ -6,14 +6,14 @@ $application=Get-MatlabApplication $Role
 $barrier=$null
 if ($env:GITHUB_EVENT_NAME -ceq 'workflow_dispatch') {
     $barrier=Get-MatlabIntegrationBarrier $CoreRoot $ProducerRunId $BarrierRunId $BarrierAttempt
-    $pr=Invoke-MatlabGh @('api',"repos/$MatlabWrapperRepository/pulls/$($barrier.integrations.matlab.pr_number)") | ConvertFrom-Json
+    $pr=Invoke-MatlabGh -Arguments @('api',"repos/$MatlabWrapperRepository/pulls/$($barrier.integrations.matlab.pr_number)") | ConvertFrom-Json
     if ($pr.merge_commit_sha -cne $barrier.integrations.matlab.head_sha) { throw 'Wrapper merge differs from the verified barrier.' }
 } elseif ($env:GITHUB_EVENT_NAME -ceq 'pull_request_target') {
     $event=Get-Content -LiteralPath $EventPath -Raw | ConvertFrom-Json
     $pr=$event.pull_request
 } else { throw 'Only a reviewed merge event or trusted main barrier resume is supported.' }
 Assert-MatlabHumanMerge $pr
-if (!$pr.merged -or $pr.base.ref -cne 'dev' -or $pr.head.repo.full_name -cne $MatlabWrapperRepository -or $pr.user.type -cne 'Bot' -or $pr.head.ref -cnotlike 'automation/matlab-wss-*') { throw 'Not a reviewed Matlab dependency promotion.' }
+if (!$pr.merged -or $pr.base.ref -cne (Get-WssCiChannel) -or $pr.head.repo.full_name -cne $MatlabWrapperRepository -or $pr.user.type -cne 'Bot' -or $pr.head.ref -cnotlike 'automation/matlab-wss-*') { throw 'Not a reviewed Matlab dependency promotion.' }
 if (Test-Path -LiteralPath $WorkRoot) { throw 'Dispatcher workspace must be new.' }
 New-Item -ItemType Directory -Path $WorkRoot | Out-Null
 $approval=Read-MatlabApprovalMarker $pr.body (Join-Path $WorkRoot 'approval.json')
@@ -30,19 +30,19 @@ if ($staged -and !$barrier) {
     exit 0
 }
 if (!$staged -and $barrier) { throw 'Barrier resume cannot substitute for a legacy producer merge event.' }
-$body=@{ref='dev';inputs=@{wrapper_sha=$pr.merge_commit_sha;wrapper_pr=[string]$pr.number;approval_json=($approval | ConvertTo-Json -Depth 8 -Compress)}} | ConvertTo-Json -Depth 6 -Compress
-$pages=Invoke-MatlabGh @('api','--paginate','--slurp',"repos/$($application.repository)/actions/workflows/promote-integration.yml/runs?event=workflow_dispatch&per_page=100") | ConvertFrom-Json
+$body=@{ref=(Get-WssCiChannel);inputs=@{wrapper_sha=$pr.merge_commit_sha;wrapper_pr=[string]$pr.number;approval_json=($approval | ConvertTo-Json -Depth 8 -Compress)}} | ConvertTo-Json -Depth 6 -Compress
+$pages=Invoke-MatlabGh -Arguments @('api','--paginate','--slurp',"repos/$($application.repository)/actions/workflows/promote-integration.yml/runs?event=workflow_dispatch&per_page=100") | ConvertFrom-Json
 $existing=@($pages | ForEach-Object { $_.workflow_runs } | Where-Object { $_.display_title -ceq "Promote Integration $($pr.merge_commit_sha) / wss-$($approval.candidate.run_id)-$($approval.candidate.artifact_id)" })
-if ($existing.Count -gt 1) { throw 'Ambiguous prior application dispatch; inspect manually.' }
-if ($existing.Count -eq 1 -and $existing[0].status -ceq 'completed' -and $existing[0].conclusion -cne 'success') { throw "Prior correlated application promotion failed: $($existing[0].html_url). Inspect before replay." }
-if ($existing.Count -eq 1) { 'dispatch_needed=false' >> $env:GITHUB_OUTPUT; Write-Output 'Prior correlated application promotion exists; no redispatch.'; exit 0 }
+. "$PSScriptRoot/wss-ci/DispatchProof.ps1"
+$run=if($existing.Count -eq 1 -and [string]$existing[0].id -cmatch '^[1-9][0-9]*$'){Invoke-MatlabGh -Arguments @('api',"repos/$($application.repository)/actions/runs/$($existing[0].id)")|ConvertFrom-Json}else{$null}
+$reuse=Invoke-WssCiDispatchProof @{operation='reuse';runs=$existing;run=$run;expected=@{repository=$application.repository;source_sha=$approval.$Role.source_sha;title="Promote Integration $($pr.merge_commit_sha) / wss-$($approval.candidate.run_id)-$($approval.candidate.artifact_id)"}}
+if($reuse){'dispatch_needed=false' >> $env:GITHUB_OUTPUT; exit 0}
+$intentName="matlab-$Role-dispatch-$($pr.merge_commit_sha)"
+Assert-WssCiDispatchArtifacts $env:GITHUB_REPOSITORY $intentName
+$sources=@{};$sources[$env:GITHUB_REPOSITORY]=$pr.merge_commit_sha;$sources[$application.repository]=$approval.$Role.source_sha
+@{owner=$env:GITHUB_REPOSITORY;repository=$application.repository;name=$intentName;sources=$sources}|ConvertTo-Json -Depth 8|Set-Content (Join-Path $WorkRoot 'dispatch-sources.json')
+"intent_name=$intentName" >> $env:GITHUB_OUTPUT
 [IO.File]::WriteAllText((Join-Path $WorkRoot ($Role+'-dispatch.json')),$body)
 'dispatch_needed=true' >> $env:GITHUB_OUTPUT
 if ($ValidateOnly) { exit 0 }
-if (!$env:MATLAB_DISPATCH_TOKEN) { throw 'Scoped target-only application Actions-write token required after validation.' }
-$readToken=$env:GH_TOKEN
-try {
-    $env:GH_TOKEN=$env:MATLAB_DISPATCH_TOKEN
-    $body | & gh api --method POST "repos/$($application.repository)/actions/workflows/promote-integration.yml/dispatches" --input -
-    if ($LASTEXITCODE -ne 0) { throw 'Application dispatch failed/uncertain; inspect before retrying.' }
-} finally { $env:GH_TOKEN=$readToken }
+throw 'Dispatch must pass the shared durable-intent workflow gate; use ValidateOnly and the common sender.'

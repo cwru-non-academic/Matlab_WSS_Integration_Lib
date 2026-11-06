@@ -1,38 +1,29 @@
 . "$PSScriptRoot/MatlabContract.ps1"
+. "$PSScriptRoot/wss-ci/Preflight.ps1"
+. "$PSScriptRoot/MatlabMacCoverage.ps1"
 
 function Wait-MatlabRun([string]$Repository,[string]$RunId,[string]$Sha,[string]$Workflow,[string]$Event,[int]$TimeoutSeconds=2400) {
-    Assert-MatlabSha $Sha
-    $deadline=[DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-    do {
-        $run=Invoke-MatlabGh @('api',"repos/$Repository/actions/runs/$RunId") | ConvertFrom-Json
-        if ($run.repository.full_name -cne $Repository -or $run.path -cne ".github/workflows/$Workflow" -or $run.head_sha -cne $Sha -or $run.event -cne $Event) { throw 'Workflow run identity mismatch.' }
-        if ($run.status -ceq 'completed') {
-            if ($run.conclusion -cne 'success') { throw 'Required workflow did not succeed; never substitute another green run.' }
-            return $run
-        }
-        if ([DateTime]::UtcNow -ge $deadline) { throw 'Timed out waiting for exact workflow.' }
-        Start-Sleep -Seconds 15
-    } while ($true)
+    Wait-WssCiRun $Repository $RunId $Sha $Workflow $Event $TimeoutSeconds
 }
 
 function Assert-MatlabProducer($Candidate) {
     Assert-MatlabCandidate $Candidate
     $run=Wait-MatlabRun $Candidate.repository $Candidate.run_id $Candidate.commit 'artifacts.yml' 'push'
-    if ($run.head_branch -cne 'dev' -or $run.head_repository.full_name -cne $Candidate.repository -or $Candidate.archive -cne 'WSS-Universal-ci.zip') { throw 'Automatic Matlab propagation requires the canonical Core dev push archive.' }
-    $compare=Invoke-MatlabGh @('api',"repos/$($Candidate.repository)/compare/$($Candidate.commit)...dev") | ConvertFrom-Json
+    if ($run.run_attempt -lt 1) { throw 'Exact producer attempt is required.' }
+    if ($run.head_branch -cne (Get-WssCiChannel) -or $run.head_repository.full_name -cne $Candidate.repository -or $Candidate.archive -cne 'WSS-Universal-ci.zip') { throw 'Automatic Matlab propagation requires the canonical Core dev push archive.' }
+    $compare=Invoke-MatlabGh -Arguments @('api',"repos/$($Candidate.repository)/compare/$($Candidate.commit)...$(Get-WssCiChannel)") | ConvertFrom-Json
     if ($compare.status -cnotin @('ahead','identical')) { throw 'Producer commit is not contained in Core dev.' }
-    $pages=Invoke-MatlabGh @('api','--paginate','--slurp',"repos/$($Candidate.repository)/actions/runs/$($Candidate.run_id)/jobs?per_page=100&filter=latest") | ConvertFrom-Json
+    $pages=Invoke-MatlabGh -Arguments @('api','--paginate','--slurp',"repos/$($Candidate.repository)/actions/runs/$($Candidate.run_id)/attempts/$($run.run_attempt)/jobs?per_page=100") | ConvertFrom-Json
     $jobs=@($pages | ForEach-Object { $_.jobs })
-    foreach ($name in @('Build and validate artifacts','Core conformance','Serial consumer (Windows)','Serial consumer (macOS)','Serial consumer (Linux)','BLE consumer (Windows)','BLE consumer (Linux)','Build macOS universal BLE bridge','BLE consumer (macOS x86_64)','BLE consumer (macOS arm64)','Core consumer (Windows)','Core consumer (macOS)','Core consumer (Linux)','Start routine downstream validation')) {
-        $matching=@($jobs | Where-Object { $_.name -ceq $name })
-        if ($matching.Count -ne 1 -or $matching[0].conclusion -cne 'success') { throw "Required Core producer job missing/skipped/failed: $name" }
-    }
-    $artifact=Invoke-MatlabGh @('api',"repos/$($Candidate.repository)/actions/artifacts/$($Candidate.artifact_id)") | ConvertFrom-Json
+    . "$PSScriptRoot/wss-ci/Producer.ps1"
+    Assert-WssCiProducerJobs $jobs 'macos-ble-v1'
+    $artifact=Invoke-MatlabGh -Arguments @('api',"repos/$($Candidate.repository)/actions/artifacts/$($Candidate.artifact_id)") | ConvertFrom-Json
     if ($artifact.expired -or $artifact.name -cne 'universal-release-assets' -or [string]$artifact.workflow_run.id -cne [string]$Candidate.run_id -or $artifact.workflow_run.head_sha -cne $Candidate.commit) { throw 'Wrong/expired producer artifact.' }
+    if((Get-WssCiChannel) -ceq 'main'){if($compare.status -cne 'identical'){throw 'Core main moved from exact candidate.'};$proof=Assert-WssCiWorkflowAuthorization ([string]$Candidate.run_id);Assert-MatlabSameCandidate $proof.candidate $Candidate}
 }
 
 function Get-MatlabHead([string]$Repository) {
-    $branch=Invoke-MatlabGh @('api',"repos/$Repository/branches/dev") | ConvertFrom-Json
+    $branch=Invoke-MatlabGh -Arguments @('api',"repos/$Repository/branches/$(Get-WssCiChannel)") | ConvertFrom-Json
     Assert-MatlabSha $branch.commit.sha
     $branch.commit.sha
 }
@@ -41,39 +32,10 @@ function Start-MatlabPreflight([string]$Repository,$Candidate,[string]$WrapperSh
     Assert-MatlabCandidate $Candidate
     Assert-MatlabSha $WrapperSha
     Assert-MatlabSha $ApplicationSha
-    if ($Repository -cnotin @($MatlabWrapperRepository,$MatlabCliRepository)) { throw 'Unknown Matlab preflight repository.' }
-    $correlation="wss-$($Candidate.run_id)-$($Candidate.artifact_id)-$WrapperSha-$ApplicationSha"
-    $title="WSS preflight $($Candidate.run_id) / $correlation"
-    function Find-Run {
-        $pages=Invoke-MatlabGh @('api','--paginate','--slurp',"repos/$Repository/actions/workflows/wss-preflight.yml/runs?event=workflow_dispatch&per_page=100") | ConvertFrom-Json
-        $runs=@($pages | ForEach-Object { $_.workflow_runs } | Where-Object { $_.display_title -ceq $title })
-        if ($runs.Count -gt 1) { throw 'Ambiguous correlated preflight; no run selection or redispatch.' }
-        if ($runs.Count -eq 1) { return $runs[0] }
-    }
-    $found=Find-Run
-    if (!$found) {
-        $inputs=@{candidate_json=($Candidate | ConvertTo-Json -Depth 5 -Compress);wrapper_sha=$WrapperSha;correlation_id=$correlation}
-        $sourceField='cli_sha'
-        $inputs[$sourceField]=$ApplicationSha
-        $body=@{ref='dev';inputs=$inputs} | ConvertTo-Json -Depth 5 -Compress
-        if (!$env:MATLAB_PREFLIGHT_TOKEN) { throw 'Scoped downstream Actions-write token required.' }
-        $readToken=$env:GH_TOKEN
-        try {
-            $env:GH_TOKEN=$env:MATLAB_PREFLIGHT_TOKEN
-            $body | & gh api --method POST "repos/$Repository/actions/workflows/wss-preflight.yml/dispatches" --input -
-            if ($LASTEXITCODE -ne 0) { throw 'Preflight dispatch failed/uncertain. Inspect before any retry.' }
-        } finally { $env:GH_TOKEN=$readToken }
-        $deadline=[DateTime]::UtcNow.AddSeconds(180)
-        do {
-            $found=Find-Run
-            if ($found) { break }
-            if ([DateTime]::UtcNow -ge $deadline) { throw 'Dispatched preflight not discovered; inspect before retrying.' }
-            Start-Sleep -Seconds 5
-        } while ($true)
-    }
-    $expectedSha=if ($Repository -ceq $MatlabWrapperRepository) { $WrapperSha } else { $ApplicationSha }
-    if ($found.head_sha -cne $expectedSha) { throw 'Correlated preflight source changed; no automatic redispatch.' }
-    if ($NoWait) { return $found }
+    if($Repository -cnotin @($MatlabWrapperRepository,$MatlabCliRepository)){throw 'Unknown Matlab preflight repository.'}
+    $found=Start-WssCiPreflight -Repository $Repository -Candidate $Candidate -WrapperSha $WrapperSha -ApplicationSha $ApplicationSha -DispatchToken $env:MATLAB_PREFLIGHT_TOKEN
+    if($NoWait){return $found}
+    $expectedSha=if($Repository -ceq $MatlabWrapperRepository){$WrapperSha}else{$ApplicationSha}
     Wait-MatlabRun $Repository ([string]$found.id) $expectedSha 'wss-preflight.yml' 'workflow_dispatch'
 }
 
@@ -158,14 +120,14 @@ function Assert-MatlabRemoteProjection([string]$Sha,$Record) {
     Assert-MatlabSha $Sha
     if ($Record.schema -cne 'wss-matlab-projection/v1' -or (Get-MatlabProjectionDigest $Record.files) -cne $Record.projection_sha256 -or
         @(Compare-Object $MatlabProjectionFiles @($Record.files.source) -CaseSensitive).Count) { throw 'Invalid merged projection inventory/digest.' }
-    $tree=Invoke-MatlabGh @('api',"repos/$MatlabWrapperRepository/git/trees/${Sha}?recursive=1") | ConvertFrom-Json
+    $tree=Invoke-MatlabGh -Arguments @('api',"repos/$MatlabWrapperRepository/git/trees/${Sha}?recursive=1") | ConvertFrom-Json
     if ($tree.truncated) { throw 'Merged wrapper tree response is truncated.' }
     $actual=@($tree.tree | Where-Object { $_.type -ceq 'blob' -and $_.path.StartsWith($MatlabPluginPath+'/',[StringComparison]::Ordinal) } | ForEach-Object { $_.path })
     $expected=@($MatlabProjectionFiles | ForEach-Object { "$MatlabPluginPath/$_" }) + @("$MatlabPluginPath/payload-source.json")
     if (@(Compare-Object $expected $actual -CaseSensitive).Count) { throw 'Merged wrapper payload inventory differs.' }
     $metadataEntries=@($tree.tree | Where-Object { $_.path -ceq "$MatlabPluginPath/payload-source.json" -and $_.type -ceq 'blob' })
     if ($metadataEntries.Count -ne 1) { throw 'Merged payload metadata is missing/ambiguous.' }
-    $metadataBlob=Invoke-MatlabGh @('api',"repos/$MatlabWrapperRepository/git/blobs/$($metadataEntries[0].sha)") | ConvertFrom-Json
+    $metadataBlob=Invoke-MatlabGh -Arguments @('api',"repos/$MatlabWrapperRepository/git/blobs/$($metadataEntries[0].sha)") | ConvertFrom-Json
     if ($metadataBlob.encoding -cne 'base64') { throw 'Unsupported payload metadata encoding.' }
     $metadata=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($metadataBlob.content)) | ConvertFrom-Json
     Assert-MatlabProjectionMetadata $metadata $Record
@@ -173,7 +135,7 @@ function Assert-MatlabRemoteProjection([string]$Sha,$Record) {
         $path="$MatlabPluginPath/$($file.source)"
         $entries=@($tree.tree | Where-Object { $_.path -ceq $path -and $_.type -ceq 'blob' })
         if ($entries.Count -ne 1) { throw 'Merged payload path missing/ambiguous.' }
-        $blob=Invoke-MatlabGh @('api',"repos/$MatlabWrapperRepository/git/blobs/$($entries[0].sha)") | ConvertFrom-Json
+        $blob=Invoke-MatlabGh -Arguments @('api',"repos/$MatlabWrapperRepository/git/blobs/$($entries[0].sha)") | ConvertFrom-Json
         if ($blob.encoding -cne 'base64') { throw 'Unsupported blob encoding.' }
         $hash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Convert]::FromBase64String($blob.content))).ToLowerInvariant()
         if ($hash -cne $file.sha256) { throw "Actual merged payload differs: $path" }
@@ -183,7 +145,7 @@ function Assert-MatlabRemoteProjection([string]$Sha,$Record) {
 
 function Get-MatlabReviewedPullRequestRun($PullRequest) {
     Assert-MatlabSha $PullRequest.head.sha
-    $pages=Invoke-MatlabGh @('api','--paginate','--slurp',"repos/$MatlabWrapperRepository/actions/workflows/wss-compatibility.yml/runs?event=pull_request&head_sha=$($PullRequest.head.sha)&per_page=100") | ConvertFrom-Json
+    $pages=Invoke-MatlabGh -Arguments @('api','--paginate','--slurp',"repos/$MatlabWrapperRepository/actions/workflows/wss-compatibility.yml/runs?event=pull_request&head_sha=$($PullRequest.head.sha)&per_page=100") | ConvertFrom-Json
     $runs=@($pages | ForEach-Object { $_.workflow_runs } | Sort-Object { [long]$_.id } -Descending)
     if (!$runs.Count) { throw 'No final-head normal wrapper PR CI exists.' }
     $run=$runs[0]
@@ -195,12 +157,12 @@ function Get-MatlabReviewedPullRequestRun($PullRequest) {
     if (!$links.Count) {
         # GitHub can clear run/check-suite PR arrays after merge/branch deletion.
         # Require an independent, unique association at the immutable reviewed head.
-        $associated=Invoke-MatlabGh @('api','--paginate','--slurp',"repos/$MatlabWrapperRepository/commits/$($PullRequest.head.sha)/pulls?per_page=100") | ConvertFrom-Json
+        $associated=Invoke-MatlabGh -Arguments @('api','--paginate','--slurp',"repos/$MatlabWrapperRepository/commits/$($PullRequest.head.sha)/pulls?per_page=100") | ConvertFrom-Json
         $links=@($associated | ForEach-Object { $_ })
         if ($links.Count -ne 1 -or $links[0].state -cne 'closed' -or $links[0].merged_at -cne $PullRequest.merged_at -or
             $links[0].merge_commit_sha -cne $PullRequest.merge_commit_sha -or $links[0].head.sha -cne $PullRequest.head.sha -or
             $links[0].head.ref -cne $PullRequest.head.ref -or $links[0].head.repo.full_name -cne $MatlabWrapperRepository -or
-            $links[0].base.ref -cne 'dev' -or $links[0].base.repo.full_name -cne $MatlabWrapperRepository) { throw 'Missing, ambiguous or mismatched reviewed head-to-PR association.' }
+            $links[0].base.ref -cne (Get-WssCiChannel) -or $links[0].base.repo.full_name -cne $MatlabWrapperRepository) { throw 'Missing, ambiguous or mismatched reviewed head-to-PR association.' }
     }
     if ($links.Count -ne 1 -or [string]$links[0].number -cne [string]$PullRequest.number) { throw 'Normal CI is not uniquely associated with the reviewed PR.' }
     return $run
@@ -209,23 +171,23 @@ function Get-MatlabReviewedPullRequestRun($PullRequest) {
 function Assert-MatlabMergedWrapper([string]$Sha,[string]$PrNumber,$Approval) {
     Assert-MatlabSha $Sha
     if ($PrNumber -cnotmatch '^[1-9][0-9]*$') { throw 'Invalid wrapper PR number.' }
-    $pr=Invoke-MatlabGh @('api',"repos/$MatlabWrapperRepository/pulls/$PrNumber") | ConvertFrom-Json
+    $pr=Invoke-MatlabGh -Arguments @('api',"repos/$MatlabWrapperRepository/pulls/$PrNumber") | ConvertFrom-Json
     Assert-MatlabHumanMerge $pr
-    if (!$pr.merged -or $pr.merge_commit_sha -cne $Sha -or $pr.base.ref -cne 'dev' -or $pr.base.repo.full_name -cne $MatlabWrapperRepository -or
+    if (!$pr.merged -or $pr.merge_commit_sha -cne $Sha -or $pr.base.ref -cne (Get-WssCiChannel) -or $pr.base.repo.full_name -cne $MatlabWrapperRepository -or
         $pr.head.repo.full_name -cne $MatlabWrapperRepository -or $pr.user.type -cne 'Bot') { throw 'Wrapper must be the actual reviewed same-repository bot PR merge into dev.' }
     if ($pr.head.ref -cne "automation/matlab-wss-$($Approval.candidate.run_id)-$($Approval.candidate.sha256)") { throw 'Merged wrapper PR is not the canonical candidate branch.' }
-    $compare=Invoke-MatlabGh @('api',"repos/$MatlabWrapperRepository/compare/${Sha}...dev") | ConvertFrom-Json
+    $compare=Invoke-MatlabGh -Arguments @('api',"repos/$MatlabWrapperRepository/compare/${Sha}...$(Get-WssCiChannel)") | ConvertFrom-Json
     if ($compare.status -cnotin @('ahead','identical')) { throw 'Wrapper merge is not contained in dev.' }
-    $delta=Invoke-MatlabGh @('api',"repos/$MatlabWrapperRepository/compare/$($Approval.wrapper.source_sha)...$Sha") | ConvertFrom-Json
+    $delta=Invoke-MatlabGh -Arguments @('api',"repos/$MatlabWrapperRepository/compare/$($Approval.wrapper.source_sha)...$Sha") | ConvertFrom-Json
     if ($delta.total_commits -lt 1 -or $delta.files.Count -ge 300) { throw 'Wrapper comparison empty or potentially truncated.' }
     Assert-MatlabDiff @($delta.files.filename) (Get-MatlabAllowedWrapperPaths)
     $run=Get-MatlabReviewedPullRequestRun $pr
-    $jobs=Invoke-MatlabGh @('api','--paginate','--slurp',"repos/$MatlabWrapperRepository/actions/runs/$($run.id)/jobs?per_page=100") | ConvertFrom-Json
+    $jobs=Invoke-MatlabGh -Arguments @('api','--paginate','--slurp',"repos/$MatlabWrapperRepository/actions/runs/$($run.id)/jobs?per_page=100") | ConvertFrom-Json
     foreach ($name in @('Integration behavioral tests','Integration compatibility (Windows)','Integration compatibility (Ubuntu)','Integration compatibility (macOS)')) {
         $required=@($jobs | ForEach-Object { $_.jobs } | Where-Object { $_.name -ceq $name })
         if ($required.Count -ne 1 -or $required[0].conclusion -cne 'success') { throw "Normal committed-state acceptance missing/skipped/failed: $name" }
     }
-    $content=Invoke-MatlabGh @('api',"repos/$MatlabWrapperRepository/contents/.github/matlab-candidate.json?ref=$Sha") | ConvertFrom-Json
+    $content=Invoke-MatlabGh -Arguments @('api',"repos/$MatlabWrapperRepository/contents/.github/matlab-candidate.json?ref=$Sha") | ConvertFrom-Json
     $record=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($content.content)) | ConvertFrom-Json
     Assert-MatlabSameCandidate $record.candidate $Approval.candidate
     if ($record.projection_sha256 -cne $Approval.projection_sha256) { throw 'Merged projection differs from preflights.' }
@@ -266,7 +228,7 @@ function Assert-MatlabForwardCandidate($Current,$Incoming,[string]$ProjectionDig
         if ($Current.projection_sha256 -cne $ProjectionDigest) { throw 'Conflicting payload for the same Core commit.' }
         return
     }
-    $comparison=Invoke-MatlabGh @('api',"repos/cwru-non-academic/WSSCore/compare/$($Current.candidate.commit)...$($Incoming.commit)") | ConvertFrom-Json
+    $comparison=Invoke-MatlabGh -Arguments @('api',"repos/cwru-non-academic/WSSCore/compare/$($Current.candidate.commit)...$($Incoming.commit)") | ConvertFrom-Json
     if ($comparison.status -cne 'ahead') { throw 'Older or conflicting Core candidate would roll back the recorded dependency.' }
 }
 function Get-MatlabApprovalRoles($Approval) {
@@ -306,15 +268,15 @@ function Get-MatlabEvidence([string]$Repository,[string]$RunId,[string]$SourceSh
     $expectedRepository=if ($Role -ceq 'wrapper') { $MatlabWrapperRepository } else { (Get-MatlabApplication $Role).repository }
     if ($Repository -cne $expectedRepository) { throw 'Role/repository evidence mismatch.' }
     $run=Wait-MatlabRun $Repository $RunId $SourceSha 'wss-preflight.yml' 'workflow_dispatch'
-    if ($run.head_branch -cne 'dev') { throw 'Preflight must execute trusted dev source.' }
-    $pages=Invoke-MatlabGh @('api','--paginate','--slurp',"repos/$Repository/actions/runs/$RunId/jobs?per_page=100&filter=latest") | ConvertFrom-Json
+    if ($run.head_branch -cne (Get-WssCiChannel)) { throw 'Preflight must execute trusted dev source.' }
+    $pages=Invoke-MatlabGh -Arguments @('api','--paginate','--slurp',"repos/$Repository/actions/runs/$RunId/attempts/$($run.run_attempt)/jobs?per_page=100") | ConvertFrom-Json
     $prefix=if ($Role -ceq 'wrapper') { 'Preflight' } else { 'CLI preflight' }
     foreach ($name in @("$prefix behavioral tests","$prefix compatibility (Windows)","$prefix compatibility (Ubuntu)","$prefix compatibility (macOS)")) {
         $required=@($pages | ForEach-Object { $_.jobs } | Where-Object { $_.name -ceq $name })
         if ($required.Count -ne 1 -or $required[0].conclusion -cne 'success') { throw "Missing/skipped/failed native preflight job: $name" }
     }
     if (Test-Path -LiteralPath $Root) { throw 'Evidence destination must be new.' }
-    $null=Invoke-MatlabGh @('run','download',$RunId,'--repo',$Repository,'--name','matlab-preflight-evidence','--dir',$Root)
+    $null=Invoke-MatlabGh -Arguments @('run','download',$RunId,'--repo',$Repository,'--name','matlab-preflight-evidence','--dir',$Root)
     $actual=@(Get-ChildItem -LiteralPath $Root -Recurse -File | ForEach-Object { [IO.Path]::GetRelativePath($Root,$_.FullName).Replace('\','/') })
     if (@(Compare-Object @('evidence.json','summary.json','projection.json') $actual -CaseSensitive).Count) { throw 'Incomplete/extra native evidence files.' }
     $e=Get-Content (Join-Path $Root 'evidence.json') -Raw | ConvertFrom-Json
@@ -335,17 +297,17 @@ function Get-MatlabEvidence([string]$Repository,[string]$RunId,[string]$SourceSh
         $projection.files.Count -ne $MatlabProjectionFiles.Count -or @(Compare-Object $MatlabProjectionFiles @($projection.files.source) -CaseSensitive).Count -or
         (Get-MatlabProjectionDigest $projection.files) -cne $e.projection_sha256 -or $projection.projection_sha256 -cne $e.projection_sha256) { throw 'Projection/evidence mismatch.' }
     $normalizedRoot=Join-Path $Root 'normalized'
-    $null=Invoke-MatlabGh @('run','download',$RunId,'--repo',$Repository,'--name','wss-candidate-provenance','--dir',$normalizedRoot)
+    $null=Invoke-MatlabGh -Arguments @('run','download',$RunId,'--repo',$Repository,'--name','wss-candidate-provenance','--dir',$normalizedRoot)
     $normalizedFiles=@(Get-ChildItem -LiteralPath $normalizedRoot -Force)
     if ($normalizedFiles.Count -ne 1 -or $normalizedFiles[0].PSIsContainer -or $normalizedFiles[0].Name -cne 'candidate.json') { throw 'Normalized evidence must contain exactly candidate.json.' }
     $normalized=Get-Content (Join-Path $normalizedRoot 'candidate.json') -Raw | ConvertFrom-Json
     Assert-MatlabSameCandidate $normalized $Candidate
     if (@($normalized.PSObject.Properties).Count -ne 6) { throw 'Normalized candidate must contain only the six producer fields.' }
     $macRoot=Join-Path $Root 'packaged-macos'
-    $null=Invoke-MatlabGh @('run','download',$RunId,'--repo',$Repository,'--name','matlab-preflight-compatibility-macOS','--dir',$macRoot)
+    $null=Invoke-MatlabGh -Arguments @('run','download',$RunId,'--repo',$Repository,'--name','matlab-preflight-compatibility-macOS','--dir',$macRoot)
     $macFiles=@(Get-ChildItem -LiteralPath $macRoot -Force)
     if ($macFiles.Count -ne 1 -or $macFiles[0].PSIsContainer -or $macFiles[0].Name -cne 'compatibility.json') { throw 'Packaged macOS proof is incomplete.' }
     $mac=Get-Content (Join-Path $macRoot 'compatibility.json') -Raw | ConvertFrom-Json
-    if ($mac.Serial -cne 'passed' -or $mac.Ble -cne 'passed' -or $mac.Backend -cne 'WSS.Transport.BLE.MacOS' -or $mac.Platform -cnotin @('MACA64','MACI64')) { throw 'Candidate did not verify packaged macOS BLE loading.' }
+    Assert-MatlabMacCoverage $mac -Repository $Repository -RunId $RunId -Attempt ([string]$run.run_attempt) -SourceSha $SourceSha
     $e
 }

@@ -1,6 +1,7 @@
 # Offline contract tests only: synthetic files/API responses never count as runtime proof.
 . "$PSScriptRoot/../MatlabPromotion.ps1"
 . "$PSScriptRoot/../MatlabDevStage.ps1"
+& "$PSScriptRoot/Test-MatlabMacCoverage.ps1"
 function Assert-Rejected([scriptblock]$Action,[string]$Because) {
     $rejected=$false
     try { & $Action } catch { $rejected=$true }
@@ -72,12 +73,12 @@ $script:producerEvent='push'; $script:producerJob='success'; $script:artifactExp
 function Invoke-MatlabGh([string[]]$Arguments) {
     $uri=$Arguments[-1]
     if ($uri -like '*/actions/runs/123') {
-        @{repository=@{full_name=$candidate.repository};head_repository=@{full_name=$candidate.repository};path='.github/workflows/artifacts.yml';head_sha=$candidate.commit;event=$script:producerEvent;head_branch='dev';status='completed';conclusion='success'} | ConvertTo-Json -Depth 4
+        @{repository=@{full_name=$candidate.repository};head_repository=@{full_name=$candidate.repository};path='.github/workflows/artifacts.yml';head_sha=$candidate.commit;event=$script:producerEvent;head_branch='dev';status='completed';conclusion='success';run_attempt=1} | ConvertTo-Json -Depth 4
     } elseif ($uri -like '*/compare/*') { @{status=$script:comparisonStatus} | ConvertTo-Json }
     elseif ($uri -like '*/branches/dev') { @{commit=@{sha=$script:coreHead}} | ConvertTo-Json -Depth 3 }
     elseif ($uri -like '*/jobs*') {
-        $names=@('Build and validate artifacts','Core conformance','Serial consumer (Windows)','Serial consumer (macOS)','Serial consumer (Linux)','BLE consumer (Windows)','BLE consumer (Linux)','Build macOS universal BLE bridge','BLE consumer (macOS x86_64)','BLE consumer (macOS arm64)','Core consumer (Windows)','Core consumer (macOS)','Core consumer (Linux)','Start routine downstream validation')
-        @(@{jobs=@($names | ForEach-Object { @{name=$_;conclusion=$script:producerJob} })}) | ConvertTo-Json -Depth 6 -AsArray
+        $names=@('Build and validate artifacts','Core conformance','Serial consumer (Windows)','Serial consumer (macOS)','Serial consumer (Linux)','BLE consumer (Windows)','BLE consumer (Linux)','Build macOS universal BLE bridge','BLE consumer (macOS x86_64)','BLE consumer (macOS arm64)','Core consumer (Windows)','Core consumer (macOS)','Core consumer (Linux)','Start routine downstream validation','BLE Consumer for Windows','BLE Consumer for Linux','BLE Consumer for Mac')
+        @(@{jobs=@($names | ForEach-Object { @{name=$_;status='completed';conclusion=$script:producerJob} })}) | ConvertTo-Json -Depth 6 -AsArray
     } elseif ($uri -like '*/actions/artifacts/456') {
         @{expired=$script:artifactExpired;name='universal-release-assets';workflow_run=@{id='123';head_sha=$candidate.commit}} | ConvertTo-Json -Depth 4
     } elseif ($uri -like '*/actions/workflows/wss-compatibility.yml/runs*') {
@@ -86,11 +87,18 @@ function Invoke-MatlabGh([string[]]$Arguments) {
         $associationPages=[object[]]::new(1);$associationPages[0]=@($script:reviewedCommitPrs)
         ConvertTo-Json -InputObject $associationPages -Depth 12
     } elseif ($uri -like '*/git/trees/*') {
-        @{truncated=$script:stageTruncated;tree=$script:stageEntries} | ConvertTo-Json -Depth 5
+        @{sha=('7'*40);truncated=$script:stageTruncated;tree=$script:stageEntries} | ConvertTo-Json -Depth 5
     } elseif ($uri -like '*/contents/tools/ci/dev-propagation.json*') {
         if ($script:stageDenied) { throw 'Synthetic API denial must fail closed.' }
-        @{type='file';encoding='base64';content=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($script:stagePolicy | ConvertTo-Json -Depth 6)))} | ConvertTo-Json
+        @{type='file';encoding='base64';sha=('8'*40);content=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($script:stagePolicy | ConvertTo-Json -Depth 6)))} | ConvertTo-Json
     } else { throw "Unexpected offline API call: $uri" }
+}
+# The shared engine's exact-run event/source rejection is tested in Node. Feed
+# this producer adapter its explicit requested run through the existing fixture.
+function Wait-WssCiRun($Repository,$RunId,$SourceSha,$Workflow,$Event,$TimeoutSeconds) {
+    $run=Invoke-MatlabGh -Arguments @('api',"repos/$Repository/actions/runs/$RunId")|ConvertFrom-Json
+    if($Repository -cne $candidate.repository -or $RunId -cne $candidate.run_id -or $SourceSha -cne $candidate.commit -or $Workflow -cne 'artifacts.yml' -or $Event -cne $run.event){throw 'Synthetic shared producer boundary mismatch.'}
+    $run
 }
 Assert-MatlabProducer $candidate
 $script:producerEvent='pull_request'
@@ -124,7 +132,7 @@ Assert-Rejected { Assert-MatlabHumanMerge $human } 'automatic merge configuratio
 $script:producerEvent='push'; $script:producerJob='success'; $script:artifactExpired=$false; $script:comparisonStatus='identical'
 $script:stageTruncated=$false; $script:stageEntries=@(); $script:stageDenied=$false
 if (Test-MatlabStagedProducer $candidate) { throw 'A verified producer without policy must retain legacy fanout.' }
-$script:stageEntries=@(@{path='tools/ci/dev-propagation.json';type='blob'})
+$script:stageEntries=@(@{path='tools/ci/dev-propagation.json';type='blob';sha=('8'*40)})
 $script:stagePolicy=@{schema='wss-dev-stage/v1';channel='dev';libraries=@(@{id='matlab';repository=$MatlabWrapperRepository;fanout='dispatch-cli-promotion.yml';applications=@($MatlabCliRepository)})}
 if (!(Test-MatlabStagedProducer $candidate)) { throw 'A staged producer must wait for the Core barrier.' }
 $script:stageDenied=$true
@@ -160,4 +168,121 @@ foreach ($field in @('head_sha','head_branch','path','event')) {
 $newer=$success | ConvertTo-Json -Depth 8 | ConvertFrom-Json;$newer.id=790;$newer.conclusion='failure'
 $script:reviewedCiRuns=@($success,$newer)
 Assert-Rejected { Get-MatlabReviewedPullRequestRun $reviewed } 'older green CI hiding a newer failed exact-head run'
-Write-Output 'PASS offline MATLAB provenance, exact inventory, hash and constrained-diff contracts. No runtime simulation is counted as conformance.'
+# Execute the actual late workflow command with metadata-only command stubs.
+$workflow=Get-Content "$PSScriptRoot/../../workflows/dispatch-cli-promotion.yml" -Raw
+$stepName='Recheck integration barrier immediately before application writes'
+$step=[regex]::Match($workflow,"(?ms)^      - name: $stepName\r?\n(?<body>.*?)(?=^      - )")
+$validateAt=$workflow.IndexOf('name: Verify actual reviewed wrapper merge')
+$checkAt=$workflow.IndexOf("name: $stepName")
+$tokenAt=$workflow.IndexOf('id: dispatch')
+$postAt=$workflow.IndexOf('name: Dispatch through common durable-intent sender')
+if (!$step.Success -or $validateAt -lt 0 -or $checkAt -le $validateAt -or $tokenAt -le $checkAt -or $postAt -le $tokenAt -or
+    !$step.Groups['body'].Value.Contains("if: github.event_name == 'workflow_dispatch' && steps.validate.outputs.dispatch_needed == 'true'")) {
+    throw 'The staged late barrier must gate write credentials after proof validation, preserving legacy/no-op skips.'
+}
+$run=[regex]::Match($step.Groups['body'].Value,'(?s)        run: \|\r?\n(?<command>.*)')
+if (!$run.Success) { throw 'Late barrier command missing.' }
+$lateCheck=[scriptblock]::Create($run.Groups['command'].Value)
+$savedEnvironment=@{}
+foreach ($key in @('GITHUB_EVENT_NAME','GITHUB_REF','GITHUB_WORKFLOW_REF','GITHUB_SHA','GITHUB_WORKSPACE','PRODUCER_RUN_ID','BARRIER_RUN_ID','BARRIER_ATTEMPT','GH_TOKEN','MATLAB_PREFLIGHT_TOKEN')) {
+    $savedEnvironment[$key]=[Environment]::GetEnvironmentVariable($key)
+}
+$script:lateCore='a'*40; $script:lateInvalid=$false; $script:lateDenied=$false
+$script:lateCalls=0; $script:lateWrites=0
+function gh {
+    $global:LASTEXITCODE=0
+    if ('POST' -cin $args) { $script:lateWrites++; throw 'Barrier metadata checks must never write.' }
+    if ($script:lateDenied) { $global:LASTEXITCODE=1; return '{}' }
+    switch ($args[-1]) {
+        'repos/cwru-non-academic/Matlab_WSS_Integration_Lib/branches/main' { @{commit=@{sha=$env:GITHUB_SHA}} | ConvertTo-Json -Depth 4 }
+        'repos/cwru-non-academic/WSSCore/branches/main' { @{commit=@{sha=$script:lateCore}} | ConvertTo-Json -Depth 4 }
+        default { throw "Unexpected late-check read: $($args[-1])" }
+    }
+}
+function git { $global:LASTEXITCODE=0; if ('rev-parse' -cin $args) { $script:lateCore } }
+function Get-LateBarrierNativeNode {
+    $nativeNodePath=@(& node --print process.execPath)
+    if($LASTEXITCODE -ne 0 -or $nativeNodePath.Count -ne 1 -or $nativeNodePath[0] -isnot [string] -or
+       ![IO.Path]::IsPathFullyQualified($nativeNodePath[0]) -or !(Test-Path -LiteralPath $nativeNodePath[0] -PathType Leaf)){
+        throw 'Late-barrier fixture requires one successfully resolved absolute Node executable.'
+    }
+    $nativeNodePath[0]
+}
+$baseNode=Get-LateBarrierNativeNode
+$nodeAliases=@((Join-Path ([IO.Path]::GetTempPath()) ('wss first Node path '+[guid]::NewGuid())),(Join-Path ([IO.Path]::GetTempPath()) ('wss second Node path '+[guid]::NewGuid())))
+$originalNodeSearchPath=$env:PATH
+try {
+    foreach($alias in $nodeAliases){
+        $kind=if($IsWindows){'Junction'}else{'SymbolicLink'}
+        New-Item -ItemType $kind -Path $alias -Target (Split-Path -Parent $baseNode)|Out-Null
+    }
+    $env:PATH=($nodeAliases -join [IO.Path]::PathSeparator)+[IO.Path]::PathSeparator+$originalNodeSearchPath
+    if(@(Get-Command node -CommandType Application -All).Count -lt 2){throw 'Duplicate-PATH regression did not expose multiple Node applications.'}
+    $duplicatePathNode=Get-LateBarrierNativeNode
+    $literalArguments=@('path with spaces','a;b','$(literal)')
+    $probe=@(& $duplicatePathNode -e 'process.stdout.write(JSON.stringify(process.argv.slice(1)))' -- @literalArguments)
+    if($LASTEXITCODE -ne 0 -or $probe.Count -ne 1){throw 'Duplicate-PATH Node executable did not run exactly once successfully.'}
+    $receivedArguments=@($probe[0]|ConvertFrom-Json)
+    if($receivedArguments.Count -ne $literalArguments.Count -or @(Compare-Object $literalArguments $receivedArguments -CaseSensitive -SyncWindow 0).Count){throw 'Duplicate-PATH invocation changed literal arguments.'}
+} finally {
+    $env:PATH=$originalNodeSearchPath
+    foreach($alias in $nodeAliases){if(Test-Path -LiteralPath $alias){Remove-Item -LiteralPath $alias -Force}}
+}
+$global:wssMatlabLateRealNode=Get-LateBarrierNativeNode
+function node {
+    if($args[0] -cmatch '(channels|staging)\.mjs$'){ & $global:wssMatlabLateRealNode @args;return }
+    $script:lateCalls++
+    if (($args[1..4] -join ',') -cne 'verify-barrier,123,456,1') { throw 'Late barrier changed producer/correlation inputs.' }
+    $global:LASTEXITCODE=if ($script:lateInvalid) {1} else {0}
+    @{schema='wss-integration-barrier/v1';candidate=@{run_id='123'};
+        integrations=@{matlab=@{repository='cwru-non-academic/Matlab_WSS_Integration_Lib'}}} | ConvertTo-Json -Depth 6
+}
+Push-Location $repositoryRoot
+try {
+    $env:GITHUB_EVENT_NAME='workflow_dispatch'; $env:GITHUB_REF='refs/heads/main'; $env:GITHUB_SHA='e'*40
+    $env:GITHUB_WORKFLOW_REF="$MatlabWrapperRepository/.github/workflows/dispatch-cli-promotion.yml@refs/heads/main"
+    $env:GITHUB_WORKSPACE=$repositoryRoot
+    $env:PRODUCER_RUN_ID='123'; $env:BARRIER_RUN_ID='456'; $env:BARRIER_ATTEMPT='1'
+    & $lateCheck
+    $script:lateInvalid=$true
+    Assert-Rejected { & $lateCheck } 'barrier moved after initial proof validation'
+    $script:lateInvalid=$false; $script:lateDenied=$true
+    Assert-Rejected { & $lateCheck } 'read token/API denial before write authorization'
+    if ($script:lateCalls -ne 2 -or $script:lateWrites -ne 0) { throw 'Late barrier rejection retried verification or attempted a write.' }
+} finally {
+    Pop-Location
+    Remove-Item Function:gh,Function:git,Function:node
+    foreach ($key in $savedEnvironment.Keys) { [Environment]::SetEnvironmentVariable($key,$savedEnvironment[$key]) }
+    $global:LASTEXITCODE=0
+}
+
+# Shared Node reference contracts cover the HTTP/discovery safety boundary on
+# three hosted OSes. Retain MATLAB's adapter and queued-is-not-proof checks here.
+$script:adapterRequest=$null
+function Start-WssCiPreflight([string]$Repository,$Candidate,[string]$WrapperSha,[string]$ApplicationSha,[string]$DispatchToken) {
+    $script:adapterRequest=@{repository=$Repository;candidate=$Candidate;wrapper_sha=$WrapperSha;application_sha=$ApplicationSha;token=$DispatchToken}
+    [pscustomobject]@{id='900';status='queued';head_sha=$ApplicationSha}
+}
+function Wait-WssCiRun($Repository,$RunId,$SourceSha,$Workflow,$Event,$TimeoutSeconds){throw 'Shared fixture run remains queued; no conformance proof.'}
+try {
+    $env:GH_TOKEN='unit-only-reader';$env:MATLAB_PREFLIGHT_TOKEN='unit-only-scoped-token'
+    foreach($role in @('wrapper','cli')){
+        $script:adapterRequest=$null
+        $repo=if($role -ceq 'wrapper'){$MatlabWrapperRepository}else{$MatlabCliRepository}
+        $queued=Start-MatlabPreflight $repo $candidate ('c'*40) ('d'*40) -NoWait
+        if($queued.status -cne 'queued' -or $script:adapterRequest.repository -cne $repo -or $script:adapterRequest.wrapper_sha -cne ('c'*40) -or $script:adapterRequest.application_sha -cne ('d'*40) -or $script:adapterRequest.token -cne 'unit-only-scoped-token' -or $env:GH_TOKEN -cne 'unit-only-reader'){throw 'MATLAB adapter changed source, queued state or scoped credentials.'}
+        Assert-MatlabSameCandidate $script:adapterRequest.candidate $candidate
+    }
+    Assert-Rejected {Start-MatlabPreflight $MatlabCliRepository $candidate ('c'*40) ('d'*40)} 'queued is not successful acceptance'
+    $script:adapterRequest=$null
+    Assert-Rejected {Start-MatlabPreflight 'foreign/repository' $candidate ('c'*40) ('d'*40) -NoWait} 'foreign repository cannot dispatch'
+    if($script:adapterRequest){throw 'Foreign repository reached the shared boundary.'}
+}finally{
+    Remove-Item Function:Start-WssCiPreflight,Function:Wait-WssCiRun
+    . "$PSScriptRoot/../wss-ci/Preflight.ps1"
+    foreach($key in $savedEnvironment.Keys){[Environment]::SetEnvironmentVariable($key,$savedEnvironment[$key])}
+    $global:LASTEXITCODE=0
+}
+Write-Output 'PASS offline MATLAB provenance, exact inventory, hash, correlation and late barrier contracts. No runtime simulation is counted as conformance.'
+
+$global:LASTEXITCODE=0 # Expected shared-validator rejection fixtures completed.
