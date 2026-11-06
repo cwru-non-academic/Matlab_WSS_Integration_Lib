@@ -26,9 +26,9 @@ Build the managed host with an installed .NET SDK:
 dotnet build managed/Wss.Matlab.Managed.csproj -c Release
 ```
 
-Use a MATLAB release with a supported .NET runtime. The initial target is Windows
-with modern Core namespaces; older namespace layouts and Linux/macOS transport
-behavior have not been validated. Choose the CLR explicitly in a fresh MATLAB
+Use MATLAB R2026b with .NET 8, the combination exercised by native CI on Windows,
+Ubuntu and macOS. Older runtime/namespace layouts remain unverified. Choose the
+CLR explicitly in a fresh MATLAB
 session before any .NET calls. For a release that supports .NET 8 selection:
 
 ```matlab
@@ -133,27 +133,16 @@ Conformance uses the production MATLAB wrapper and Core evaluator, including the
 initialization, analog, six normalized, runtime edit and stop scenarios. The
 MATLAB port preserves the 18 assertion sites in the canonical C# fixture at
 SHA-256 `1cdfb9448a1776011eadc9aef8356362216032013a4f268f50242746c50a0b44`;
-it is a source port, not the byte-identical NUnit fixture. Equivalence is pending
-MATLAB execution and review. Failures are collected across scenarios.
+it is a source port, not the byte-identical NUnit fixture. Native CI executes the
+source port; passing scenarios do not establish byte identity with NUnit.
+Failures are collected across scenarios.
 
-The initial checks ran on MATLAB R2026b (`26.2.0.3386108`) with .NET 8 on Windows:
-managed host checks passed; all 10 catalog scenarios passed through the wrapper
-and all 10 through the CLI factory. All nine MATLAB unit/runtime tests passed,
-including busy-MATLAB tick progression, failed assembly loading, and normal
-CLI quit/command-failure disposal. MATLAB Code Analyzer reported zero findings
-at that checkpoint. These are emulator checks, not physical-device qualification.
-
-The CLI's MATLAB Engine harness passed a quit/interruption/quit sequence with
-a blocking input double, real MATLAB Engine cancellation, background tick
-progress and synchronous disposal/reset checks. Native console `input` and
-keyboard Ctrl+C remain manual checks: the execution tool cannot deliver input
-to the launched MATLAB console. Run `checkBlockedInput` from the `conformance/`
-folder on the MATLAB path, and separately interrupt the CLI with Ctrl+C.
-
-Windows serial runtime and BLE/native ABI load-only compatibility checks also
-passed through both wrapper and CLI compatibility entry points, separately from
-behavioral conformance. No port Open, radio scan, ConnectAsync or stimulation
-operation is used by those checks. Ubuntu/macOS execution remains unverified.
+Native console `input` and keyboard Ctrl+C remain manual checks. Run
+`checkBlockedInput` from the `conformance/` folder on the MATLAB path, and
+separately interrupt the CLI with Ctrl+C. Windows serial runtime and BLE/native
+ABI load-only compatibility checks are separate from behavioral conformance;
+they do not open ports, scan radios, connect, or stimulate. CI also executes
+separate Ubuntu and macOS compatibility jobs.
 
 ## Propagation preparation
 
@@ -181,8 +170,8 @@ reviewed configuration on both main and dev. These settings permit execution;
 they do not attest acceptance of a candidate or start a workflow. Every candidate
 still requires immutable provenance, real native/platform preflights and reviewed
 dependency merges, with `auto_merge=false`. Core automatic-trigger approval is
-separate. The existing receipt verifier pin and its MATLAB exclusion are unchanged;
-release acceptance needs its separately reviewed Core policy/verifier alignment.
+separate. Release acceptance requires the separately reviewed Core policy/verifier contract
+to include MATLAB; the workflow and receipt guards pin the exact verifier revision.
 
 The additional `Mac packaged BLE diagnostic (arm64)` PR job downloads the pinned
 preparation artifact from Core run `40815407554`, verifies its archive hash and
@@ -209,7 +198,83 @@ approval, parent, payload, native-evidence and application validation chain can
 authorize a target-only write token. Resume uses existing App read access across
 Core and all four integrations; it creates no persistent credentials or grants.
 
-Deploy this declaration, hook and approved readiness configuration on both main
-and dev before producing a staged candidate. Verify registered workflows,
-rulesets and existing App access before the separately authorized Core rollout.
-Keep `auto_merge` false; dependency merges and candidate validation remain required.
+The source declares readiness true in `.github/matlab-ci.json` and enables
+`automation/pipeline-contract.json`. Source declarations do not attest that
+repository variables, rulesets or App access are configured, accept a candidate,
+or start a workflow. Dependency merges and candidate validation remain required.
+
+## Continuous integration
+
+`.github/workflows/wss-compatibility.yml` runs on PRs targeting `main` and `dev`
+and manual dispatch. `Integration behavioral tests` runs managed lifecycle checks,
+MATLAB Code Analyzer, native unit/runtime tests and the canonical Core catalog.
+Separate `Integration compatibility (Windows|Ubuntu|macOS)` jobs check serial
+runtime and platform BLE/backend/native ABI loading without opening a port,
+scanning, connecting or stimulating. Evidence is uploaded from ignored `artifacts/ci/`.
+
+The reusable `.github/actions/native-matlab` installs .NET 8 and MATLAB R2026b
+using official `setup-matlab@v3` and `run-command@v3`. Current workflows use
+GitHub-hosted runners and native MATLAB, with no Engine or managed-only substitute.
+Technical public-project execution success does not itself settle MathWorks
+support or licensing terms; consult the action's
+[licensing notes](https://github.com/matlab-actions/setup-matlab#notes).
+
+Run the same native entrypoints locally:
+
+```matlab
+addpath('ci');
+runWrapperCi('behavioral');
+runWrapperCi('compatibility');
+```
+
+Compatibility depends on the committed payload: a legacy payload without the
+macOS backend reports `unsupported-by-Core`, which is not a macOS BLE pass. The
+separate packaged diagnostic tests its pinned newer artifact.
+
+## Dependency update contract
+
+The wrapper owns `Cs_Libraries/`. The CLI pins a published wrapper commit at
+`external/wss-matlab-wrapper`; its `--wrapper-root` option is an explicit local
+development override. Sibling checkout changes are never implicit in that gitlink.
+
+1. `wss-preflight.yml` resolves the exact successful canonical Core dev tuple:
+   repository, commit, run ID, artifact ID, archive and SHA-256. It verifies archive
+   bytes, ZIP paths, exact inventory and per-file hashes. Wrapper and CLI source
+   revisions, suite digest, projection, workflow identity and summary hashes bind
+   the native evidence. Source-suite identity normalizes CRLF to LF; archive/DLL
+   hashes cover exact bytes. New candidates require 27 files and producer macOS
+   bridge/consumer checks; only the recorded historical reference may retain 25.
+2. `promote-wss.yml` validates source-bound native/platform preflight evidence
+   before requesting target-only write credentials and proposing a payload-only
+   wrapper `dev` PR. An identical payload is a verified no-op preserving provenance.
+3. After human merge, the dispatcher verifies the actual merged payload, approval
+   marker, restricted diff, ancestry and fresh committed-state normal CI. The
+   staged barrier described above precedes application write credentials. The CLI
+   revalidates the original evidence, merged wrapper and current CLI source before
+   proposing a gitlink-only `dev` PR for human review and merge.
+4. `release-receipt.yml` performs read-only frozen-plan acceptance verification.
+   No-op/preparation-only heads and stale or missing proofs are rejected.
+
+Correlated runs/branches are reused only when exact identity and intended tree
+match. Ambiguous, expired, failed or uncertain evidence stops publication. Fixture
+rejection tests and packaged diagnostics are not end-to-end candidate acceptance
+proof. Successful acceptance in another language is not MATLAB evidence.
+
+## MATLAB Engine lifecycle checks
+
+The CLI Engine harness command is:
+
+```powershell
+python ../CLI_Matlab_WSS_Application/tests/engine/check_interactive_lifecycle.py --matlab-root 'C:/Program Files/MATLAB/R2026b' --wrapper-root .
+```
+
+It temporarily shadows only `input` with a blocking test double and checks real
+Engine cancellation, managed ticking and synchronous disposal/reset. Native
+keyboard/UI checks remain distinct. Individual MATLAB scenarios fail at their
+first assertion; failures aggregate across scenarios. The transient runtime-edit
+pause uses a cancellation-aware emulator send gate, while ordinary commands are
+ungated.
+
+Operational payload hashes, fixture pins, verifier revisions and artifact tuples
+remain in machine-readable metadata and workflows. They bind exact inputs and
+prevent mutable or substituted evidence; they are not credentials.
