@@ -1,13 +1,14 @@
 . "$PSScriptRoot/MatlabPromotion.ps1"
+. "$PSScriptRoot/wss-ci/Staging.ps1"
 
 function Test-MatlabStagedProducer($Candidate) {
     # A failed API call is never interpreted as a legacy producer.
     Assert-MatlabProducer $Candidate
     . "$PSScriptRoot/wss-ci/Staging.ps1"
     $tree=Invoke-MatlabGh -Arguments @('api',"repos/$($Candidate.repository)/git/trees/$($Candidate.commit)?recursive=1")|ConvertFrom-Json
-    $entries=@($tree.tree|Where-Object path -CEQ 'tools/ci/dev-propagation.json')
-    $file=if($entries.Count -eq 1){Invoke-MatlabGh -Arguments @('api',"repos/$($Candidate.repository)/contents/tools/ci/dev-propagation.json?ref=$($Candidate.commit)")|ConvertFrom-Json}else{$null}
-    $receiver=Get-Content "$PSScriptRoot/../dev-propagation.json" -Raw|ConvertFrom-Json
+    $entries=@($tree.tree|Where-Object path -CEQ (Get-WssCiChannelContext).stagePolicy)
+    $file=if($entries.Count -eq 1){Invoke-MatlabGh -Arguments @('api',"repos/$($Candidate.repository)/contents/$((Get-WssCiChannelContext).stagePolicy)?ref=$($Candidate.commit)")|ConvertFrom-Json}else{$null}
+    $receiver=Get-Content "$PSScriptRoot/../$((Get-WssCiChannelContext).channel)-propagation.json" -Raw|ConvertFrom-Json
     Test-WssCiStagingPolicy $tree $file $receiver matlab
 
 }
@@ -25,7 +26,8 @@ function Get-MatlabIntegrationBarrier([string]$CoreRoot,[string]$ProducerRunId,[
     $output=& node (Join-Path $CoreRoot 'tools/ci/dev-propagation.mjs') verify-barrier $ProducerRunId $BarrierRunId $BarrierAttempt
     if ($LASTEXITCODE -ne 0) { throw 'Trusted Core integration barrier verification failed; no application write is authorized.' }
     $barrier=($output -join "`n") | ConvertFrom-Json
-    if ($barrier.schema -cnotin @('wss-integration-barrier/v1','wss-integration-barrier/v2') -or [string]$barrier.candidate.run_id -cne $ProducerRunId -or
+    if ($barrier.schema -cnotin $(if((Get-WssCiChannel) -ceq 'main'){@('wss-integration-barrier/v3')}else{@('wss-integration-barrier/v1','wss-integration-barrier/v2')}) -or [string]$barrier.candidate.run_id -cne $ProducerRunId -or
         $barrier.integrations.matlab.repository -cne $MatlabWrapperRepository) { throw 'Verified barrier did not authorize this MATLAB producer/receiver.' }
+    Assert-WssCiBarrierExecution $barrier matlab $env:GITHUB_WORKSPACE
     return $barrier
 }

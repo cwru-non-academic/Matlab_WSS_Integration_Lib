@@ -5,8 +5,10 @@ param(
     [Parameter(Mandatory)][string]$OutputPath
 )
 . (Join-Path $ToolsRoot '.github/scripts/ReleaseReceiptContract.ps1')
-if ($env:GITHUB_ACTIONS -cne 'true' -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch' -or $env:GITHUB_REF -cne 'refs/heads/dev') { throw 'Read-only receipt validation requires the actual dev emitter.' }
+if ($env:GITHUB_ACTIONS -cne 'true' -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch' -or $env:GITHUB_REF -cne (Get-WssCiChannelContext).ref) { throw 'Read-only receipt validation requires the actual dev emitter.' }
 $ctx=Get-Content -LiteralPath $ContextPath -Raw | ConvertFrom-Json
+if($ctx.plan.channel -cne (Get-WssCiChannel) -or $ctx.target.branch -cne (Get-WssCiChannel)){throw 'Receipt context differs from explicit channel.'}
+if((Get-WssCiChannel) -ceq 'main' -and ($env:GITHUB_WORKFLOW_SHA -cne $env:GITHUB_SHA -or $env:GITHUB_WORKFLOW_REF -cne "$env:GITHUB_REPOSITORY/.github/workflows/release-receipt.yml@refs/heads/main")){throw 'Main receipt must execute its exact registered receiver source.'}
 if ($ctx.head -cne $env:GITHUB_SHA -or $ctx.target.repository -cne $env:GITHUB_REPOSITORY) { throw 'Receipt context source mismatch.' }
 if (Test-Path -LiteralPath $WorkRoot) { throw 'Receipt validation workspace must be new.' }
 $null=New-Item -ItemType Directory -Path $WorkRoot
@@ -35,7 +37,7 @@ if ($ctx.target.role -ceq 'wrapper') {
     $source=$fresh.($application.source_field)
     $targetId='matlab-'+$role
     if ($source -cne $ctx.plan.target_snapshots.$targetId.head_sha -or $fresh.wrapper_sha -cne $ctx.parents.'matlab-wrapper') { throw 'Post-merge application proof differs from frozen source/actual parent pin.' }
-    $parentPrs=@(Invoke-MatlabGh -Arguments @('api','--paginate','--slurp',"repos/$MatlabWrapperRepository/commits/$($fresh.wrapper_sha)/pulls?per_page=100") | ConvertFrom-Json | ForEach-Object { $_ } | Where-Object { $_.merge_commit_sha -ceq $fresh.wrapper_sha -and $_.merged_at -and $_.base.ref -ceq 'dev' })
+    $parentPrs=@(Invoke-MatlabGh -Arguments @('api','--paginate','--slurp',"repos/$MatlabWrapperRepository/commits/$($fresh.wrapper_sha)/pulls?per_page=100") | ConvertFrom-Json | ForEach-Object { $_ } | Where-Object { $_.merge_commit_sha -ceq $fresh.wrapper_sha -and $_.merged_at -and $_.base.ref -ceq (Get-WssCiChannel) })
     if ($parentPrs.Count -ne 1) { throw 'Actual wrapper parent does not identify a unique reviewed merge.' }
     $parent=Invoke-MatlabGh -Arguments @('api',"repos/$MatlabWrapperRepository/pulls/$($parentPrs[0].number)") | ConvertFrom-Json
     if ($parent.merged_by.type -cne 'User') { throw 'Wrapper parent merge must be human reviewed.' }
