@@ -11,10 +11,15 @@ clear runConformance;
 if strcmp(profile.name, 'legacy-v1')
     fixture = fullfile(root, config.legacy_fixture_path);
     expected = config.legacy_fixture_sha256;
+    profile.fixture_commit = config.legacy_fixture_commit;
+    profile.fixture_path = config.legacy_fixture_path;
 else
     fixture = fullfile(root, config.fixture_path);
     expected = config.fixture_sha256;
+    profile.fixture_commit = config.fixture_commit;
+    profile.fixture_path = config.fixture_path;
 end
+profile.fixture_sha256 = expected;
 text = strrep(fileread(fixture), sprintf('\r\n'), newline);
 assert(strcmp(hashBytes(unicode2native(text, 'UTF-8')), expected), 'Canonical fixture hash mismatch.');
 addpath(fileparts(fixture), '-begin');

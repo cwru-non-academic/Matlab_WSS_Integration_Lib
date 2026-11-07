@@ -123,8 +123,10 @@ function Assert-MatlabNativeSummary($Summary,$Config,$Projection,[switch]$Requir
     if($Summary.profile.name -ceq 'legacy-v1'){
         if($RequireModern){throw 'Selection-enabled campaigns require the complete layered profile.'}
         $expected=@($Config.legacy_expected_cases)
+        if($Summary.profile.fixture_commit -cne $Config.legacy_fixture_commit -or $Summary.profile.fixture_path -cne $Config.legacy_fixture_path -or $Summary.profile.fixture_sha256 -cne $Config.legacy_fixture_sha256){throw 'Legacy fixture source binding mismatch.'}
         if($Summary.multiScenariosPassed -ne 0 -or @($Summary.multiCases).Count){throw 'Unexpected legacy multi-device evidence.'}
     }elseif($Summary.profile.name -ceq 'layered-v1'){
+        if($Summary.profile.fixture_commit -cne $Config.fixture_commit -or $Summary.profile.fixture_path -cne $Config.fixture_path -or $Summary.profile.fixture_sha256 -cne $Config.fixture_sha256){throw 'Layered fixture source binding mismatch.'}
         $multi=@($Config.legacy_expected_cases)+@($Config.multidevice_expected_cases)
         if($Summary.multiScenariosPassed -ne 16 -or @($Summary.multiCases).Count -ne 16 -or
            @(Compare-Object $multi @($Summary.multiCases.Id) -CaseSensitive).Count -or
