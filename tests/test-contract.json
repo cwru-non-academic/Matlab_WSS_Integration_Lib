@@ -1,0 +1,6 @@
+{
+  "schema": "wss-matlab-tests/v1",
+  "role": "wrapper",
+  "test_directory": "tests",
+  "conformance_directory": "conformance"
+}

@@ -3,7 +3,9 @@ param([Parameter(Mandatory)][string]$WorkRoot)
 $staged=Get-Content (Join-Path $WorkRoot 'staged.json') -Raw | ConvertFrom-Json
 $summaryPath=Join-Path $env:MATLAB_PREFLIGHT_ROOT ('artifacts/ci/'+$(if ($staged.role -ceq 'wrapper') { 'behavioral' } else { 'general' })+'.json')
 $summary=Get-Content $summaryPath -Raw | ConvertFrom-Json
-if ($summary.scenariosPassed -ne 10 -or $summary.cases.Count -ne 10 -or @($summary.cases | Where-Object { !$_.Passed -or $_.Failure }).Count) { throw 'Native candidate conformance incomplete.' }
+$config=Read-MatlabConfig "$PSScriptRoot/../matlab-ci.json"
+$projection=Get-Content (Join-Path $WorkRoot 'projection.json') -Raw | ConvertFrom-Json
+Assert-MatlabNativeSummary $summary $config $projection
 $output=Join-Path $WorkRoot 'evidence'
 New-Item -ItemType Directory -Path $output | Out-Null
 Copy-Item -LiteralPath $summaryPath -Destination (Join-Path $output 'summary.json')

@@ -100,9 +100,39 @@ function New-MatlabProjection([string]$ArtifactRoot, [string]$WrapperRoot, [stri
 function Read-MatlabConfig([string]$Path) {
     $config = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
     if ($config.schema -cne 'wss-matlab-ci/v1' -or $config.branch -cne 'dev' -or $config.automated_execution -cne 'matlab-native' -or
-        $config.matlab_release -cne 'R2026b' -or $config.dotnet_sdk -cne '8.0.x' -or $config.expected_cases.Count -ne 10 -or
+        $config.matlab_release -cne 'R2026b' -or $config.dotnet_sdk -cne '8.0.x' -or $config.expected_cases.Count -ne 16 -or
         $config.fixture_repository -cne $MatlabWrapperRepository -or $config.fixture_path -cne 'conformance/runConformance.m') { throw 'Unexpected native MATLAB CI contract.' }
+    if ($config.fixture_hash_encoding -cne 'utf8-lf' -or $config.legacy_expected_cases.Count -ne 10 -or $config.multidevice_expected_cases.Count -ne 6) { throw 'Unexpected fixture profile contract.' }
+    Assert-MatlabSha $config.legacy_fixture_commit
+    if ($config.legacy_fixture_sha256 -cnotmatch '^[0-9a-f]{64}$' -or $config.legacy_fixture_path -cne 'conformance/legacy/runConformance.m') { throw 'Invalid legacy fixture pin.' }
     Assert-MatlabSha $config.fixture_commit
     if ($config.fixture_sha256 -cnotmatch '^[0-9a-f]{64}$') { throw 'Missing native suite digest.' }
     $config
+}
+
+function Get-MatlabFixtureHash([string]$Path) {
+    $text=[IO.File]::ReadAllText($Path).Replace("`r`n","`n")
+    [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($text))).ToLowerInvariant()
+}
+function Assert-MatlabNativeSummary($Summary,$Config,$Projection,[switch]$RequireModern) {
+    Assert-MatlabSameCandidate $Summary.profile.candidate $Projection.candidate
+    $core=@($Projection.files | Where-Object source -CEQ 'WSS_Core_Interface.dll')
+    if($core.Count -ne 1 -or $Summary.profile.core_sha256 -cne $core[0].sha256 -or
+       $Summary.profile.projection_sha256 -cne $Projection.projection_sha256){throw 'Native profile is not bound to the verified Core projection.'}
+    $expected=@($Config.expected_cases)
+    if($Summary.profile.name -ceq 'legacy-v1'){
+        if($RequireModern){throw 'Selection-enabled campaigns require the complete layered profile.'}
+        $expected=@($Config.legacy_expected_cases)
+        if($Summary.profile.fixture_commit -cne $Config.legacy_fixture_commit -or $Summary.profile.fixture_path -cne $Config.legacy_fixture_path -or $Summary.profile.fixture_sha256 -cne $Config.legacy_fixture_sha256){throw 'Legacy fixture source binding mismatch.'}
+        if($Summary.multiScenariosPassed -ne 0 -or @($Summary.multiCases).Count){throw 'Unexpected legacy multi-device evidence.'}
+    }elseif($Summary.profile.name -ceq 'layered-v1'){
+        if($Summary.profile.fixture_commit -cne $Config.fixture_commit -or $Summary.profile.fixture_path -cne $Config.fixture_path -or $Summary.profile.fixture_sha256 -cne $Config.fixture_sha256){throw 'Layered fixture source binding mismatch.'}
+        $multi=@($Config.legacy_expected_cases)+@($Config.multidevice_expected_cases)
+        if($Summary.multiScenariosPassed -ne 16 -or @($Summary.multiCases).Count -ne 16 -or
+           @(Compare-Object $multi @($Summary.multiCases.Id) -CaseSensitive).Count -or
+           @($Summary.multiCases | Where-Object {$_.Passed -cne $true -or $_.Failure}).Count){throw 'Mandatory layered multi-device evidence incomplete.'}
+    }else{throw 'Unknown native conformance profile.'}
+    if($Summary.scenariosPassed -ne $expected.Count -or @($Summary.cases).Count -ne $expected.Count -or
+       @(Compare-Object $expected @($Summary.cases.Id) -CaseSensitive).Count -or
+       @($Summary.cases | Where-Object {$_.Passed -cne $true -or $_.Failure}).Count){throw 'Mandatory canonical case inventory incomplete.'}
 }
