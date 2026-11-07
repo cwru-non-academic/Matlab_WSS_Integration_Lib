@@ -5,6 +5,9 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Threading;
+using System.Collections.Generic;
+using Wss.CoreModule;
+using Wss.Transports;
 using CoreLog = Wss.CoreModule.Log;
 
 namespace Wss.Matlab.Managed
@@ -19,15 +22,20 @@ namespace Wss.Matlab.Managed
         private bool captureCoreLogs;
         private string lastCoreError = "";
         private readonly object disposeGate = new object();
-        private readonly object stack;
+        private object? stack;
+        private ITransport? pendingTransport;
+        private WssStimulationCoreOptions? pendingOptions;
         private readonly int interval;
         private readonly string logPath;
         private readonly ManualResetEvent stop = new ManualResetEvent(false);
-        private readonly MethodInfo tick;
+        private MethodInfo? tick;
         private Thread? thread;
         private object? basic;
         private bool initialized;
         private bool disposed;
+        private bool cleanupComplete, stopComplete, shutdownComplete, disposeComplete, signalDisposed;
+        private bool alreadyInitialized;
+        private WssConfigurationSnapshot? snapshot;
         private Exception? tickFailure;
         private long tickCount;
 
@@ -44,6 +52,47 @@ namespace Wss.Matlab.Managed
             tick = stack.GetType().GetMethod("Tick", Type.EmptyTypes)
                 ?? throw new MissingMethodException(stack.GetType().FullName, "Tick");
         }
+
+        /// <summary>Owns a transport and staged configuration before construction, so failed cleanup remains retryable.</summary>
+        public ControllerHost(ITransport transport, WssStimulationCoreOptions options,
+            WssConfigurationSnapshot configuration, int tickIntervalMs, string logPath)
+        {
+            if (tickIntervalMs < 1) throw new ArgumentOutOfRangeException(nameof(tickIntervalMs));
+            this.logPath = Path.GetFullPath(logPath);
+            interval = tickIntervalMs;
+            snapshot = configuration ?? throw new ArgumentNullException(nameof(configuration));
+            pendingOptions = options ?? throw new ArgumentNullException(nameof(options));
+            pendingTransport = transport ?? throw new ArgumentNullException(nameof(transport));
+        }
+
+        /// <summary>Stages all startup defaults without changing the running stack.</summary>
+        public WssConfigurationSnapshot StageDefaults()
+        { lock (gate) { EnsureRunning(); return CurrentSnapshot().ReloadDefaults(); } }
+
+        /// <summary>Stages a complete profile or explicit calibration file using anchored startup defaults.</summary>
+        public WssConfigurationSnapshot StageReload(string path)
+        { lock (gate) { EnsureRunning(); return CurrentSnapshot().Reload(path); } }
+
+        /// <summary>Stages active Core edits and retains current calibration/model values and paths.</summary>
+        public WssConfigurationSnapshot StageCore()
+        { lock (gate) { EnsureRunning(); return CurrentSnapshot().ReloadCore(); } }
+
+        /// <summary>Installs staged values only if Core is unchanged; otherwise requests reconstruction.</summary>
+        public bool TryApply(WssConfigurationSnapshot configuration)
+        {
+            lock (gate)
+            {
+                EnsureRunning();
+                if (!configuration.HasSameCore(CurrentSnapshot())) return false;
+                configuration.ApplyWithoutRestart((IStimulationCore)stack!);
+                snapshot = configuration;
+                return true;
+            }
+        }
+
+        private WssConfigurationSnapshot CurrentSnapshot() =>
+            (snapshot ?? throw new InvalidOperationException("Host has no configuration snapshot."))
+                .CaptureCurrent((IStimulationCore)stack!);
 
         /// <summary>Gets whether the initialized stack exposes the optional basic API.</summary>
         public bool BasicSupported { get { lock (gate) return initialized && !disposed && basic != null; } }
@@ -71,7 +120,14 @@ namespace Wss.Matlab.Managed
                 {
                     lock (logGate) captureCoreLogs = true;
                     CoreLog.Message += OnCoreMessage;
-                    Invoke(stack, "Initialize", Array.Empty<object>());
+                    if (stack == null)
+                    {
+                        stack = snapshot!.BuildAndInitialize(pendingTransport!, pendingOptions!, WssConfigurationLayer.Model);
+                        pendingTransport = null;
+                        tick = stack.GetType().GetMethod("Tick", Type.EmptyTypes)!;
+                        alreadyInitialized = true;
+                    }
+                    if (!alreadyInitialized) Invoke(stack, "Initialize", Array.Empty<object>());
                     MethodInfo? probe = stack.GetType().GetMethods().SingleOrDefault(m =>
                         m.Name == "TryGetBasic" && m.GetParameters().Length == 1);
                     if (probe != null)
@@ -80,17 +136,22 @@ namespace Wss.Matlab.Managed
                         if ((bool)InvokeMethod(stack, probe, args)!) basic = args[0];
                     }
                     initialized = true;
-                    thread = new Thread(Run) { IsBackground = true, Name = "wss-matlab-tick" };
-                    thread.Start();
+                    var worker = new Thread(Run) { IsBackground = true, Name = "wss-matlab-tick" };
+                    worker.Start();
+                    thread = worker;
                     Log("Initialized");
                 }
-                catch
+                catch (Exception initializationError)
                 {
                     initialized = false;
                     disposed = true;
-                    CleanupStack();
-                    DetachCoreLogs();
-                    stop.Dispose();
+                    try { CleanupStack(); }
+                    catch (Exception cleanupError)
+                    {
+                        throw new AggregateException("Initialization and cleanup failed; cleanup may be retried.",
+                            initializationError, cleanupError);
+                    }
+                    finally { DetachCoreLogs(); stop.Dispose(); signalDisposed = true; }
                     throw;
                 }
             }
@@ -106,7 +167,7 @@ namespace Wss.Matlab.Managed
             lock (gate)
             {
                 EnsureRunning();
-                return Invoke(stack, method, arguments);
+                return Invoke(stack!, method, arguments);
             }
         }
 
@@ -144,7 +205,7 @@ namespace Wss.Matlab.Managed
                 {
                     Invoke(basic, method, arguments);
                     var deadline = System.Diagnostics.Stopwatch.StartNew();
-                    while ((bool)Invoke(stack, "Started", Array.Empty<object>())!)
+                    while ((bool)Invoke(stack!, "Started", Array.Empty<object>())!)
                     {
                         if (deadline.ElapsedMilliseconds >= 2000)
                             throw new TimeoutException("Core did not enter a paused state during the emulator observation.");
@@ -164,16 +225,16 @@ namespace Wss.Matlab.Managed
             lock (gate)
             {
                 EnsureRunning();
-                MethodInfo method = stack.GetType().GetMethod("TryGetStimParam")
+                MethodInfo method = stack!.GetType().GetMethod("TryGetStimParam")
                     ?? throw new MissingMethodException("TryGetStimParam");
                 object[] args = { key, 0f };
-                return new[] { InvokeMethod(stack, method, args)!, args[1] };
+                return new[] { InvokeMethod(stack!, method, args)!, args[1] };
             }
         }
 
         /// <summary>Stops ticking, requests a broadcast stop, shuts down and disposes the stack once.</summary>
         /// <remarks>Waits for an in-flight managed call/tick to return; no managed calls occur after return.
-        /// Cleanup failures are logged and remaining cleanup is attempted. No hard deadline is promised.</remarks>
+        /// Cleanup failures propagate after remaining cleanup is attempted; failed stages can be retried. No hard deadline is promised.</remarks>
         public void Dispose()
         {
             lock (disposeGate)
@@ -181,20 +242,23 @@ namespace Wss.Matlab.Managed
             Thread? running;
             lock (gate)
             {
-                if (disposed) return;
+                if (cleanupComplete) return;
                 disposed = true;
-                stop.Set();
+                if (!signalDisposed) stop.Set();
                 running = thread;
             }
             running?.Join();
             lock (gate)
             {
-                CleanupStack();
-                DetachCoreLogs();
-                initialized = false;
-                basic = null;
-                thread = null;
-                stop.Dispose();
+                try { CleanupStack(); cleanupComplete = true; }
+                finally
+                {
+                    DetachCoreLogs();
+                    initialized = false;
+                    basic = null;
+                    thread = null;
+                    if (!signalDisposed) { stop.Dispose(); signalDisposed = true; }
+                }
                 Log("Disposed");
             }
             }
@@ -209,7 +273,7 @@ namespace Wss.Matlab.Managed
                     if (disposed) return;
                     try
                     {
-                        InvokeMethod(stack, tick, Array.Empty<object>());
+                        InvokeMethod(stack!, tick!, Array.Empty<object>());
                         Interlocked.Increment(ref tickCount);
                     }
                     catch (Exception error)
@@ -226,23 +290,52 @@ namespace Wss.Matlab.Managed
 
         private void CleanupStack()
         {
-            TryStop();
-            foreach (string method in new[] { "Shutdown", "Dispose" })
+            if (stack == null)
             {
-                try { Invoke(stack, method, Array.Empty<object>()); }
-                catch (Exception error) { Log(method + " failed: " + error); }
+                pendingTransport?.Dispose();
+                pendingTransport = null;
+                return;
             }
+            var failures = new List<Exception>();
+            if (!stopComplete)
+            {
+                try { StopStack(); stopComplete = true; }
+                catch (Exception error) { failures.Add(error); Log("StopStim failed: " + error); }
+            }
+            if (!shutdownComplete)
+            {
+                try { Invoke(stack, "Shutdown", Array.Empty<object>()); shutdownComplete = true; }
+                catch (Exception error) { failures.Add(error); Log("Shutdown failed: " + error); }
+            }
+            if (!disposeComplete)
+            {
+                try { Invoke(stack, "Dispose", Array.Empty<object>()); disposeComplete = true; }
+                catch (Exception error) { failures.Add(error); Log("Dispose failed: " + error); }
+            }
+            // A terminally disposed owner must not receive further lifecycle calls.
+            // Report earlier failures once, then allow explicit cleanup acknowledgement.
+            if (disposeComplete) { stopComplete = true; shutdownComplete = true; }
+            if (failures.Count != 0) throw new AggregateException("Stack cleanup failed; replacement is blocked.", failures);
+        }
+
+        private void StopStack()
+        {
+            MethodInfo? method = stack!.GetType().GetMethods().FirstOrDefault(m =>
+                m.Name == "StopStim" && m.GetParameters().Length == 1);
+            if (method == null) return;
+            Type targetType = method.GetParameters()[0].ParameterType;
+            InvokeMethod(stack!, method, new[] { Enum.Parse(targetType, "Broadcast") });
         }
 
         private void TryStop()
         {
             try
             {
-                MethodInfo? method = stack.GetType().GetMethods().FirstOrDefault(m =>
+                MethodInfo? method = stack!.GetType().GetMethods().FirstOrDefault(m =>
                     m.Name == "StopStim" && m.GetParameters().Length == 1);
                 if (method == null) return;
                 Type targetType = method.GetParameters()[0].ParameterType;
-                InvokeMethod(stack, method, new[] { Enum.Parse(targetType, "Broadcast") });
+                InvokeMethod(stack!, method, new[] { Enum.Parse(targetType, "Broadcast") });
             }
             catch (Exception error) { Log("StopStim failed: " + error); }
         }

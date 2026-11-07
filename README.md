@@ -173,15 +173,16 @@ dependency merges, with `auto_merge=false`. Core automatic-trigger approval is
 separate. Release acceptance requires the separately reviewed Core policy/verifier contract
 to include MATLAB; the workflow and receipt guards pin the exact verifier revision.
 
-The additional `Mac packaged BLE diagnostic (arm64)` PR job downloads the pinned
-preparation artifact from Core run `40815407554`, verifies its archive hash and
-27-file inventory, and tests a disposable wrapper copy with real MATLAB. It
-requires successful native ABI loading, disconnected construction and CLI
-selector forwarding rather than accepting the legacy unsupported result. This
-job uses existing App access with read-only Core permissions; it does not change
-the committed payload, connect hardware, emit acceptance receipts or activate
-propagation. Its evidence applies to that preparation artifact and runner
-architecture; Intel and physical BLE require separate validation.
+The required native Mac lanes (arm64 and x86_64) also test an isolated copy of
+the actual wrapper payload with real MATLAB. Staging binds the payload manifest
+to the exact wrapper HEAD and checks inventory and hashes before and after
+copying. It preserves the wrapper source and Core pairing, including the CLI's
+actual pinned wrapper, instead of substituting a separately pinned artifact.
+The diagnostic requires native ABI loading, disconnected construction and CLI
+selector forwarding; a missing or invalid Mac backend fails. It does not change
+the original payload, connect hardware, emit acceptance receipts or activate
+propagation. Its evidence covers load/ABI compatibility on each runner, not
+physical BLE behavior or end-to-end release acceptance.
 
 The staged-dev receiver declaration is `.github/dev-propagation.json`. For a
 verified Core producer containing `tools/ci/dev-propagation.json`, a merged
@@ -229,7 +230,7 @@ runWrapperCi('compatibility');
 
 Compatibility depends on the committed payload: a legacy payload without the
 macOS backend reports `unsupported-by-Core`, which is not a macOS BLE pass. The
-separate packaged diagnostic tests its pinned newer artifact.
+separate packaged diagnostic requires the actual copied payload to pass native loading.
 
 ## Dependency update contract
 
@@ -279,10 +280,16 @@ Operational payload hashes, fixture pins, verifier revisions and artifact tuples
 remain in machine-readable metadata and workflows. They bind exact inputs and
 prevent mutable or substituted evidence; they are not credentials.
 
-## Reload behavior depends on the installed Core payload
+## Coordinated reload (modern Core required)
 
-`UpdateChannelParams` writes `stim.ch.N.defaultPA`, the amplitude used by normalized stimulation, on both supported payload profiles.
+The modern wrapper follows the C# integration controller's reload behavior using Core's `WssConfigurationSnapshot` API. This source requires a compatible modern Core payload (including 2251ccb); it must not be copied onto a historical payload merely because its ordinary compatibility tests pass. Legacy main and CLI product adoption remain separate.
 
-With modern Core (including 2251ccb), `LoadParamsJson()` reloads all three JSON files from anchored startup defaults. A directory overload loads all three standard filenames there; an explicit calibration file uses that file with startup-default Core and model files, not its siblings. Core validates the bundle and restarts when effective Core settings change. `LoadCoreConfigFile()` delegates to Core's coordinated reload/reinitialization of all active files. It does not preserve unsaved calibration/model changes. The wrapper does not add another restart policy.
+`LoadParamsJson()` reloads all three JSON files from anchored startup defaults. A directory overload selects all three standard filenames there. An explicit calibration file selects that file plus startup-default Core and model files, not its siblings. Core validates and compares snapshots. If effective Core is unchanged, the stack stays active and model history is preserved. A Core change retires the managed tick host and constructs a new stack from the validated values without rereading those files.
 
-Historical Core payloads (including 76803c03 and 50afc280) only reload calibration through `LoadParamsJson`; the parameterless call uses the active calibration file. Their `LoadConfigFile` only reads Core JSON and does not rebuild the client. They do not provide modern all-JSON reload/reinitialization. A supported modern payload adoption is required for those semantics; the compatibility profile is not evidence of that adoption. `resetRadio()` remains shutdown followed by initialization from the wrapper's configured startup directory.
+`LoadCoreConfigFile()` delegates to `resetRadio()`. Both read the active Core file, retain currently applied calibration/model values and paths (including unsaved edits), and reconstruct even when Core values are unchanged. Before initialization they are no-ops. Old nonzero stimulation is not replayed. Transport kind and serial/BLE selection remain the immutable `WssConfig` choices; auto-selection does not promise the same physical device on a new connection.
+
+Validation failure leaves the active stack unchanged. A failed reload retains its validated snapshot and any owner still requiring cleanup. `RetryReload()` retries cleanup/construction without rereading files; another reload or initialization is rejected while that intent is pending. `Shutdown()` explicitly abandons pending intent and attempts cleanup; if cleanup fails, retry `Shutdown()` before initializing again. A failed initial initialization likewise requires cleanup before reuse. Original initialization errors retain cleanup failures as causes rather than being silently replaced.
+
+Ownership is retained before host construction, including when that constructor throws. Successful cleanup stages are not repeated, and retired hosts detach Core log subscriptions and stop ticking. Core's `BuildAndInitialize` can suppress cleanup errors for a partial stack it does not return; the wrapper retains the candidate transport but cannot recover that inaccessible stack or report errors Core swallowed. No universal partial-owner recovery is claimed.
+
+`UpdateChannelParams` writes `stim.ch.N.defaultPA`, the amplitude consumed by normalized stimulation. Tests use emulator output, actual setup requests and isolated failure probes, never physical stimulation. The pinned CLI applications do not gain this behavior or the amplitude correction until their separate supported wrapper adoption.

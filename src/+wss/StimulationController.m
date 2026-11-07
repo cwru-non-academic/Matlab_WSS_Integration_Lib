@@ -14,6 +14,9 @@ classdef StimulationController < handle
     properties (Access = private)
         Host = []
         Transport = []
+        PendingSnapshot = []
+        Initialized = false
+        PendingTransport = []
     end
     methods
         function obj = StimulationController(config)
@@ -23,46 +26,41 @@ classdef StimulationController < handle
             obj.Config = config;
         end
         function Initialize(obj)
-            if ~isempty(obj.Host), return; end
-            owned = [];
-            host = [];
+            obj.requireNoPendingReload();
+            if ~isempty(obj.Host) || ~isempty(obj.PendingTransport)
+                if obj.Initialized, return; end
+                error('wss:CleanupPending', 'Call Shutdown to finish cleanup, then Initialize.');
+            end
             try
-                c = obj.Config;
-                transport = wss.createTransport(c);
-                owned = transport;
-                options = Wss.CoreModule.WssStimulationCoreOptions();
-                options.ConfigPath = c.ConfigPath;
-                options.MaxSetupTries = int32(c.MaxSetupTries);
-                owned = Wss.CoreModule.WssStimulationCore(transport, options);
-                owned = Wss.CalibrationModule.StimParamsLayer(owned, c.ConfigPath);
-                owned = Wss.ModelModule.ModelParamsLayer(owned, c.ConfigPath);
-                host = Wss.Matlab.Managed.ControllerHost(owned, int32(c.TickIntervalMs), c.LogPath);
-                host.Initialize();
-                obj.Transport = transport;
-                obj.Host = host;
+                wss.loadRuntime(obj.Config);
+                snapshot = Wss.CoreModule.WssConfigurationSnapshot.ReadDefaults(obj.Config.ConfigPath);
+                obj.buildHost(snapshot);
             catch failure
-                if ~isempty(host)
-                    host.Dispose();
-                elseif ~isempty(owned)
-                    owned.Dispose();
+                try
+                    obj.cleanupOwners();
+                catch cleanupFailure
+                    failure = addCause(failure, cleanupFailure);
                 end
                 rethrow(failure);
             end
         end
         function Shutdown(obj)
-            host = obj.Host;
-            obj.Host = [];
-            obj.Transport = [];
-            if ~isempty(host), host.Dispose(); end
+            % Explicit shutdown abandons staged intent, even if cleanup needs retry.
+            obj.PendingSnapshot = [];
+            obj.Initialized = false;
+            obj.cleanupOwners();
         end
         function delete(obj), obj.Shutdown(); end
         function releaseRadio(obj), obj.Shutdown(); end
         function resetRadio(obj)
-            if isempty(obj.Host), return; end
-            obj.Shutdown(); obj.Initialize();
+            obj.requireNoPendingReload();
+            if ~obj.Initialized, return; end
+            snapshot = obj.Host.StageCore();
+            obj.PendingSnapshot = snapshot;
+            obj.RetryReload();
         end
         function value = get.BasicSupported(obj)
-            value = ~isempty(obj.Host) && logical(obj.Host.BasicSupported);
+            value = obj.Initialized && logical(obj.Host.BasicSupported);
         end
         function value = get.TickCount(obj)
             value = 0;
@@ -78,10 +76,10 @@ classdef StimulationController < handle
             if ~isempty(obj.Host), value = char(obj.Host.LastCoreError); end
         end
         function value = Ready(obj)
-            value = ~isempty(obj.Host) && logical(obj.call('Ready'));
+            value = obj.Initialized && logical(obj.call('Ready'));
         end
         function value = Started(obj)
-            value = ~isempty(obj.Host) && logical(obj.call('Started'));
+            value = obj.Initialized && logical(obj.call('Started'));
         end
         function value = isModeValid(obj), value = logical(obj.call('IsModeValid')); end
         function StartStimulation(obj), obj.call('StartStim', obj.target(0)); end
@@ -107,8 +105,29 @@ classdef StimulationController < handle
             value = double(obj.call('GetStimIntensity', obj.channel(finger)));
         end
         function SaveParamsJson(obj), obj.call('SaveParamsJson'); end
-        function LoadParamsJson(obj, varargin), obj.call('LoadParamsJson', varargin{:}); end
-        function LoadCoreConfigFile(obj), obj.call('LoadConfigFile'); end
+        function LoadParamsJson(obj, varargin)
+            obj.requireHost();
+            if isempty(varargin)
+                snapshot = obj.Host.StageDefaults();
+            elseif isscalar(varargin)
+                snapshot = obj.Host.StageReload(char(varargin{1}));
+            else
+                error('wss:ReloadSignature', 'Use no argument, a directory, or a calibration file.');
+            end
+            if obj.Host.TryApply(snapshot), return; end
+            obj.PendingSnapshot = snapshot;
+            obj.RetryReload();
+        end
+        function LoadCoreConfigFile(obj), obj.resetRadio(); end
+        function RetryReload(obj)
+            if isempty(obj.PendingSnapshot)
+                error('wss:NoPendingReload', 'There is no staged reload to retry.');
+            end
+            obj.Initialized = false;
+            obj.cleanupOwners();
+            obj.buildHost(obj.PendingSnapshot);
+            obj.PendingSnapshot = [];
+        end
         function AddOrUpdateStimParam(obj, key, value)
             obj.finiteScalar(value);
             obj.call('AddOrUpdateStimParam', char(key), single(value));
@@ -254,9 +273,51 @@ classdef StimulationController < handle
             end
         end
     end
+    methods (Access = protected)
+        function transport = createTransport(obj)
+            transport = wss.createTransport(obj.Config);
+        end
+        function host = createHost(obj, transport, options, snapshot)
+            % Ownership passes to the host before initialization starts.
+            c = obj.Config;
+            host = Wss.Matlab.Managed.ControllerHost( ...
+                transport, options, snapshot, int32(c.TickIntervalMs), c.LogPath);
+        end
+    end
     methods (Access = private)
+        function requireNoPendingReload(obj)
+            if ~isempty(obj.PendingSnapshot)
+                error('wss:ReloadPending', 'Call RetryReload or Shutdown before another reload or Initialize.');
+            end
+        end
+        function buildHost(obj, snapshot)
+            c = obj.Config;
+            options = Wss.CoreModule.WssStimulationCoreOptions();
+            options.ConfigPath = c.ConfigPath;
+            options.MaxSetupTries = int32(c.MaxSetupTries);
+            % Retain ownership before the host constructor can throw.
+            obj.PendingTransport = obj.createTransport();
+            host = obj.createHost(obj.PendingTransport, options, snapshot);
+            obj.Host = host;
+            obj.Transport = obj.PendingTransport;
+            obj.PendingTransport = [];
+            host.Initialize();
+            obj.Initialized = true;
+        end
+        function cleanupOwners(obj)
+            if ~isempty(obj.Host)
+                obj.Host.Dispose();
+                obj.Host = [];
+                obj.Transport = [];
+            end
+            if ~isempty(obj.PendingTransport)
+                obj.PendingTransport.Dispose();
+                obj.PendingTransport = [];
+            end
+        end
         function requireHost(obj)
-            if isempty(obj.Host), error('wss:NotInitialized', 'Call Initialize before using the controller.'); end
+            obj.requireNoPendingReload();
+            if ~obj.Initialized || isempty(obj.Host), error('wss:NotInitialized', 'Call Initialize before using the controller.'); end
         end
         function value = call(obj, method, varargin)
             obj.requireHost();
