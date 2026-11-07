@@ -15,10 +15,15 @@ switch char(purpose)
             if ~isempty(findings), error('wss_ci:Analyzer', 'Code Analyzer findings in %s: %s', file, jsonencode(findings)); end
         end
         testConformanceProfiles();
-        tests = runtests(fullfile(root, 'tests'));
+        suite = testsuite(fullfile(root, 'tests'));
+        assertNativeTestContract(root, 'wrapper', {suite.Name});
+        tests = run(suite);
         assertSuccess(tests);
+        assertNativeTestContract(root, 'wrapper', {tests.Name});
         [scenarios, multi, profile] = runMandatoryConformance();
         summary = struct('purpose', purpose, 'matlab', version, 'testsPassed', sum([tests.Passed]), ...
+            'nativeTests', struct('ids', {{tests.Name}}, 'passed', [tests.Passed], ...
+                'failed', [tests.Failed], 'incomplete', [tests.Incomplete]), ...
             'scenariosPassed', sum([scenarios.Passed]), 'cases', {scenarios}, 'multiCases', {multi}, 'multiScenariosPassed', sum([multi.Passed]), 'profile', profile);
     case 'compatibility'
         summary = checkCompatibility();

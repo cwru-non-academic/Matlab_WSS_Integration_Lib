@@ -1,0 +1,17 @@
+{
+  "schema": "wss-matlab-native-tests/v1",
+  "role": "wrapper",
+  "ids": [
+    "TestConfigurationBoundary/testDefaultAmplitudeReachesNormalizedOutput",
+    "TestConfigurationBoundary/testReloadPathsAndCoreBoundary",
+    "TestConfigurationBoundary/testUninitializedErrorsPropagate",
+    "TestManagedRuntime/testTicksProgressDuringBusyMatlab",
+    "TestManagedRuntime/testFailedAssemblyLoadCanBeCleanedUp",
+    "TestWssConfig/testRejectsConflictingTransports",
+    "TestWssConfig/testPathsAreAnchoredBeforeWorkingDirectoryChanges",
+    "TestWssConfig/testConstructionHasNoRuntimeSideEffects",
+    "TestWssConfig/testTransportSelectionAndLegacyAliases",
+    "TestWssConfig/testBleRequiresExplicitSelection",
+    "TestWssConfig/testDeclaredMacCapabilityCannotHideMissingAssets"
+  ]
+}

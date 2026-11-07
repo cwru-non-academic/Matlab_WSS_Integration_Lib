@@ -16,10 +16,7 @@ $MatlabProjectionFiles = @($WssUniversalFiles)
 # Downloaded candidates and accepted promotions always require the full 27 files.
 $MatlabBootstrapProjectionFiles = @($WssUniversalFiles | Where-Object { $_ -cnotlike 'backends/macos/*' })
 
-function Get-MatlabExpectedNativeTests([ValidateSet('wrapper','cli')][string]$Role) {
-    if ($Role -ceq 'wrapper') { return 8 }
-    return 9
-}
+. "$PSScriptRoot/MatlabNativeTestContract.ps1"
 
 function Invoke-MatlabGh([string[]]$Arguments) {
     . "$PSScriptRoot/wss-ci/Process.ps1"

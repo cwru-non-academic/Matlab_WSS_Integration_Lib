@@ -287,8 +287,8 @@ function Get-MatlabEvidence([string]$Repository,[string]$RunId,[string]$SourceSh
         $e.fixture_sha -cne $Config.fixture_commit -or $e.fixture_sha256 -cne $Config.fixture_sha256 -or $e.matlab_release -cne $Config.matlab_release) { throw 'Wrong native runtime/source/suite identity.' }
     if ((Get-FileHash (Join-Path $Root 'summary.json')).Hash.ToLowerInvariant() -cne $e.summary_sha256) { throw 'Native summary hash mismatch.' }
     $summary=Get-Content (Join-Path $Root 'summary.json') -Raw | ConvertFrom-Json
-    $expectedTests=Get-MatlabExpectedNativeTests $Role
-    if ($summary.testsPassed -ne $expectedTests) { throw 'Missing native tests.' }
+    $nativeContract=Get-MatlabNativeTestContract $Role $SourceSha
+    Assert-MatlabNativeTests $summary $nativeContract
     $projection=Get-Content (Join-Path $Root 'projection.json') -Raw | ConvertFrom-Json
     Assert-MatlabNativeSummary $summary $Config $projection
     Assert-MatlabSameCandidate $projection.candidate $Candidate

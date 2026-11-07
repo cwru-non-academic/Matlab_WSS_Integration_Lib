@@ -97,7 +97,8 @@ $baseline="restoredefaultpath; addpath($(Quote-Matlab (Join-Path $stagedProduct 
 Invoke-SelectedMatlabNative $baseline 'mandatory'
 $mandatory=Get-Content -LiteralPath (Join-Path $stagedProduct "artifacts/ci/$purpose.json") -Raw | ConvertFrom-Json
 $compatibility=Get-Content -LiteralPath (Join-Path $stagedProduct 'artifacts/ci/compatibility.json') -Raw | ConvertFrom-Json
-Assert-MatlabSelectedBaseline $mandatory $config $projection $compatibility $Role
+$nativeContract=Get-MatlabNativeTestContract $Role $ProductSha $ProductRoot
+Assert-MatlabSelectedBaseline $mandatory $config $projection $compatibility $Role $nativeContract
 $baselineEvidence=Get-MatlabBaselineEvidence $stagedProduct $purpose
 $selected=Join-Path $WorkRoot 'selected' 
 foreach($file in $bundle.hashes){

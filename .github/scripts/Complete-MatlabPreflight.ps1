@@ -6,6 +6,9 @@ $summary=Get-Content $summaryPath -Raw | ConvertFrom-Json
 $config=Read-MatlabConfig "$PSScriptRoot/../matlab-ci.json"
 $projection=Get-Content (Join-Path $WorkRoot 'projection.json') -Raw | ConvertFrom-Json
 Assert-MatlabNativeSummary $summary $config $projection
+$sourceSha=if ($staged.role -ceq 'wrapper') { $staged.wrapper_sha } else { $staged.cli_sha }
+$nativeContract=Get-MatlabNativeTestContract $staged.role $sourceSha $env:MATLAB_PREFLIGHT_ROOT
+Assert-MatlabNativeTests $summary $nativeContract
 $output=Join-Path $WorkRoot 'evidence'
 New-Item -ItemType Directory -Path $output | Out-Null
 Copy-Item -LiteralPath $summaryPath -Destination (Join-Path $output 'summary.json')

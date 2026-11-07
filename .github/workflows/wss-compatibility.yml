@@ -54,6 +54,7 @@ jobs:
         run: |
           ./.github/scripts/tests/Test-MatlabPromotion.ps1
           ./.github/scripts/tests/Test-CandidateProvenance.ps1
+          ./.github/scripts/tests/Test-MatlabNativeTestContract.ps1
           ./.github/scripts/tests/Test-MatlabFixtureProfiles.ps1
           ./.github/scripts/tests/Test-MatlabNativeIsolation.ps1
           ./.github/scripts/tests/Test-MatlabDiagnosticStaging.ps1
