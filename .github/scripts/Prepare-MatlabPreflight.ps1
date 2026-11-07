@@ -33,7 +33,7 @@ if ($VerifyPackageFixtures) {
     if (!$IsLinux) { throw 'Universal package fixtures require the Linux case-sensitive lane.' }
     $coreRoot=$env:WSS_CORE_TOOLS_ROOT
     if ([string]::IsNullOrWhiteSpace($coreRoot)) { throw 'Locked Core tooling root is required.' }
-    dotnet build (Join-Path $coreRoot 'tools/ArtifactBuild/ArtifactBuild.csproj') --configuration Debug --locked-mode
+    dotnet build (Join-Path $coreRoot 'tools/ArtifactBuild/ArtifactBuild.csproj') --configuration Debug -p:RestoreLockedMode=true
     if ($LASTEXITCODE -ne 0) { throw 'Core package validator build failed.' }
     python (Join-Path $coreRoot 'tests/Packaging/verify_universal.py') (Join-Path $WorkRoot 'resolved/extracted/WSS-Universal')
     if ($LASTEXITCODE -ne 0) { throw 'Core universal package rejection fixtures failed.' }
