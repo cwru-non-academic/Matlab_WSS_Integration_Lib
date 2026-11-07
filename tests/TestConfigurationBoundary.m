@@ -18,6 +18,8 @@ cleanup = onCleanup(@() release(c, root));
 c.Initialize(); waitStarted(c);
 modern = ~isempty(c.GetCoreConfigCTRL().GetType().Assembly.GetType('Wss.CoreModule.WssConfigurationSnapshot'));
 original = c.GetConformance();
+initialSetups = setupCount(c);
+verifyGreaterThan(testCase, initialSetups, 0);
 writeProfile(root, 1, 4, .5);
 reload(c, 'params');
 if modern
@@ -27,27 +29,53 @@ else
     observe(c, @() stimulate(c, modern), 100, 4);
 end
 verifyTrue(testCase, System.Object.ReferenceEquals(original, c.GetConformance()));
+verifyEqual(testCase, setupCount(c), initialSetups, 'Unchanged Core must not repeat setup.');
 profile = fullfile(root, 'profile with spaces');
-writeProfile(profile, 1, 5, .2);
-reload(c, 'params', profile);
+devices = 1;
+if modern, devices = 3; end
+writeProfile(profile, devices, 5, .2);
+reload(c, 'params', profile); waitStarted(c);
+if modern
+    verifyEqual(testCase, double(c.GetCoreConfigCTRL().MaxWss), 3);
+    verifyGreaterThan(testCase, setupCount(c), initialSetups, 'Directory Core change must repeat setup.');
+end
 if modern, pw = 60; else, pw = 100; end
 observe(c, @() stimulate(c, modern), pw, 5);
 file = fullfile(profile, 'custom parameters.json');
 copyfile(fullfile(profile, 'stimParams.json'), file);
-reload(c, 'params', file);
+beforeFile = setupCount(c);
+reload(c, 'params', file); waitStarted(c);
+if modern
+    verifyEqual(testCase, double(c.GetCoreConfigCTRL().MaxWss), 1, 'Explicit file must use startup Core, not sibling Core.');
+    verifyGreaterThan(testCase, setupCount(c), beforeFile, 'Returning to startup Core must repeat setup.');
+end
 if modern, pw = 75; else, pw = 100; end
 observe(c, @() stimulate(c, modern), pw, 5);
-reload(c, 'params');
+beforeDefaults = setupCount(c);
+reload(c, 'params'); waitStarted(c);
+verifyEqual(testCase, double(c.GetCoreConfigCTRL().MaxWss), 1);
+verifyEqual(testCase, setupCount(c), beforeDefaults, 'Unchanged default Core must not repeat setup.');
 if modern, amp = 4; else, amp = 5; end
 observe(c, @() stimulate(c, modern), pw, amp);
 if modern
+    reload(c, 'params', profile); waitStarted(c);
+    verifyEqual(testCase, double(c.GetCoreConfigCTRL().MaxWss), 3);
+    beforeReturn = setupCount(c);
+    reload(c, 'params'); waitStarted(c);
+    verifyEqual(testCase, double(c.GetCoreConfigCTRL().MaxWss), 1, 'Parameterless reload must return to startup Core.');
+    verifyGreaterThan(testCase, setupCount(c), beforeReturn);
+    observe(c, @() stimulate(c, modern), 75, 4);
     % Active all-JSON Core reload, not snapshot-host retained-value semantics.
     writeProfile(root, 2, 7, .4);
+    beforeChanged = setupCount(c);
     reload(c, 'params'); waitStarted(c);
+    verifyGreaterThan(testCase, setupCount(c), beforeChanged, 'Changed Core parameter reload must repeat setup.');
     verifyEqual(testCase, double(c.GetCoreConfigCTRL().MaxWss), 2);
     observe(c, @() stimulate(c, modern), 70, 7);
     for k = 1:2
+        beforeCore = setupCount(c);
         reload(c, 'core'); waitStarted(c);
+        verifyGreaterThan(testCase, setupCount(c), beforeCore, 'Every Core reload must repeat setup even with unchanged JSON.');
         observe(c, @() stimulate(c, modern), 70, 7);
     end
     writeText(fullfile(root, 'modelConfig.json'), 'invalid');
@@ -88,6 +116,18 @@ catch
     failed = true;
 end
 verifyTrue(testCase, failed, 'Core failure must reach the caller.');
+end
+
+function count = setupCount(c)
+% NormalSetup sends Clear once per configured device; streaming does not.
+% Inspect decoded real emulator requests rather than host state or a test flag.
+messages = c.GetConformance().MessageHistory;
+count = 0;
+for k = 1:messages.Length
+    if messages(k).MessageId == uint8(Wss.CoreModule.WSSMessageIDs.Clear)
+        count = count + 1;
+    end
+end
 end
 
 function stimulate(c, modern)
