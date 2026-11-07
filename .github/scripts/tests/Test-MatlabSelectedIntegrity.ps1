@@ -2,6 +2,9 @@
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/../MatlabSelectedIntegrity.ps1"
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('matlab-retained-proof-'+[guid]::NewGuid())
+New-Item -ItemType Directory -Path $temp|Out-Null
+$null=git -C $temp init -q
+$temp=(git -C $temp rev-parse --show-toplevel).Trim()
 $product=Join-Path $temp 'product';$tools=Join-Path $temp 'distinct-tools'
 New-Item -ItemType Directory -Path "$product/artifacts/ci","$tools/.github/scripts" -Force|Out-Null
 function Reject-BeforeEvidence([scriptblock]$Action,[string]$Name) {
@@ -9,7 +12,24 @@ function Reject-BeforeEvidence([scriptblock]$Action,[string]$Name) {
     try{& $Action;[IO.File]::WriteAllText($output,'unexpected evidence')}catch{$rejected=$true}
     if(!$rejected -or (Test-Path -LiteralPath $output)){throw "Integrity failure $Name emitted evidence."}
 }
-foreach($name in 'behavioral.json','compatibility.json','matlab-root.txt'){[IO.File]::WriteAllText("$product/artifacts/ci/$name",'baseline')}
+foreach($name in 'behavioral.json','compatibility.json'){[IO.File]::WriteAllText("$product/artifacts/ci/$name",'baseline')}
+$cli=Join-Path $temp 'cli'
+New-Item -ItemType Directory -Path "$cli/artifacts/ci" -Force|Out-Null
+foreach($name in 'general.json','compatibility.json','matlab-root.txt'){[IO.File]::WriteAllText("$cli/artifacts/ci/$name",'baseline')}
+$cliSnapshot=Get-MatlabBaselineEvidence $cli general
+Assert-MatlabBaselineEvidence $cli general $cliSnapshot
+Remove-Item -LiteralPath "$cli/artifacts/ci/matlab-root.txt"
+Reject-BeforeEvidence {Get-MatlabBaselineEvidence $cli general} 'missing-cli-root'
+$caseProbe=Join-Path $temp 'case-probe'
+New-Item -ItemType Directory -Path $caseProbe|Out-Null
+[IO.File]::WriteAllText("$caseProbe/probe",'same')
+[IO.File]::WriteAllText("$caseProbe/PROBE",'same')
+if(@(Get-ChildItem -LiteralPath $caseProbe).Count -eq 2){
+    [IO.File]::WriteAllText("$product/artifacts/ci/BEHAVIORAL.json",'baseline')
+    Reject-BeforeEvidence {Get-MatlabBaselineEvidence $product behavioral} 'case-distinct-extra'
+    Remove-Item -LiteralPath "$product/artifacts/ci/BEHAVIORAL.json"
+    'PASS case-distinct duplicate baseline names rejected even with identical bytes.'
+}
 $snapshot=Get-MatlabBaselineEvidence $product behavioral
 Assert-MatlabBaselineEvidence $product behavioral $snapshot
 [IO.File]::WriteAllText("$product/artifacts/ci/behavioral.json",'mutated')
