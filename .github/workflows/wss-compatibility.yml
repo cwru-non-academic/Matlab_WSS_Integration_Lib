@@ -39,6 +39,7 @@ jobs:
           ./.github/scripts/tests/Test-CandidateProvenance.ps1
           ./.github/scripts/tests/Test-MatlabFixtureProfiles.ps1
           ./.github/scripts/tests/Test-MatlabNativeIsolation.ps1
+          ./.github/scripts/tests/Test-MatlabSelectedResults.ps1
           ./.github/scripts/tests/Test-ReleaseReceiptContract.ps1
           node --test .github/scripts/tests/ReceiptGuards.test.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Receipt contract guards failed.' }
@@ -48,6 +49,10 @@ jobs:
           root: .
           role: wrapper
           purpose: behavioral
+      - name: Reject incomplete selected suites in real MATLAB
+        uses: matlab-actions/run-command@v3
+        with:
+          command: addpath(fullfile(getenv('GITHUB_WORKSPACE'),'.github','scripts','tests')); testSelectedMatlabCompleteness;
       - uses: actions/upload-artifact@v4
         if: always()
         with:
