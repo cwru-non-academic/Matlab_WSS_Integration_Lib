@@ -14,11 +14,12 @@ switch char(purpose)
             findings = checkcode(file, '-id');
             if ~isempty(findings), error('wss_ci:Analyzer', 'Code Analyzer findings in %s: %s', file, jsonencode(findings)); end
         end
+        testConformanceProfiles();
         tests = runtests(fullfile(root, 'tests'));
         assertSuccess(tests);
-        scenarios = runConformance();
+        [scenarios, multi, profile] = runMandatoryConformance();
         summary = struct('purpose', purpose, 'matlab', version, 'testsPassed', sum([tests.Passed]), ...
-            'scenariosPassed', sum([scenarios.Passed]), 'cases', {scenarios});
+            'scenariosPassed', sum([scenarios.Passed]), 'cases', {scenarios}, 'multiCases', {multi}, 'multiScenariosPassed', sum([multi.Passed]), 'profile', profile);
     case 'compatibility'
         summary = checkCompatibility();
         summary.purpose = purpose;

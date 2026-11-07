@@ -14,6 +14,7 @@ param(
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/MatlabTestSource.ps1"
 . "$PSScriptRoot/MatlabContract.ps1"
+. "$PSScriptRoot/MatlabNativeIsolation.ps1"
 $ProductRoot=[IO.Path]::GetFullPath($ProductRoot)
 $PayloadRoot=[IO.Path]::GetFullPath($PayloadRoot)
 $WorkRoot=[IO.Path]::GetFullPath($WorkRoot)
@@ -65,6 +66,7 @@ if($Role -ceq 'cli'){
     $stagedPayload=Join-Path $stagedWrapper 'Cs_Libraries'
 }
 function Invoke-SelectedMatlabNative([string]$Expression,[string]$Name){
+    Invoke-MatlabCredentialIsolated {
     if($IsWindows){
         $executable=(Get-Command $MatlabExecutable -ErrorAction Stop).Source
         $direct=Join-Path (Split-Path -Parent $executable) 'win64/MATLAB.exe'
@@ -81,6 +83,7 @@ function Invoke-SelectedMatlabNative([string]$Expression,[string]$Name){
         if($LASTEXITCODE -ne 0){throw "Native MATLAB $Name failed."}
     }
 }
+}
 function Quote-Matlab([string]$Value){"'"+$Value.Replace("'","''")+"'"}
 $entry=if($Role -ceq 'wrapper'){'runWrapperCi'}else{'runCliCi'}
 $purpose=if($Role -ceq 'wrapper'){'behavioral'}else{'general'}
@@ -88,6 +91,7 @@ $baseline="restoredefaultpath; addpath($(Quote-Matlab (Join-Path $stagedProduct 
 Invoke-SelectedMatlabNative $baseline 'mandatory'
 $mandatory=Get-Content -LiteralPath (Join-Path $stagedProduct "artifacts/ci/$purpose.json") -Raw | ConvertFrom-Json
 $compatibility=Get-Content -LiteralPath (Join-Path $stagedProduct 'artifacts/ci/compatibility.json') -Raw | ConvertFrom-Json
+Assert-MatlabNativeSummary $mandatory $config $projection -RequireModern
 if($mandatory.testsPassed -lt 1 -or $mandatory.scenariosPassed -ne $config.expected_cases.Count -or
     @(Compare-Object @($config.expected_cases) @($mandatory.cases.Id) -CaseSensitive).Count -or
     @($mandatory.cases | Where-Object { !$_.Passed -or $_.Failure }).Count -or
@@ -125,6 +129,6 @@ Assert-MatlabProjection $PayloadRoot $projection
 Assert-MatlabProjection $stagedPayload $projection
 $summary=Get-Content -LiteralPath (Join-Path $WorkRoot 'selected-summary.json') -Raw | ConvertFrom-Json
 if($summary.testsPassed -lt 1 -or $summary.matlab -cnotmatch '\(R2026b\)'){throw 'Selected native summary missing real test execution.'}
-$evidence=[ordered]@{schema='wss-selected-matlab-tests/v1';role=$Role;product_root=$ProductRoot;product_sha=$ProductSha;wrapper_root=$WrapperRoot;wrapper_sha=$WrapperSha;payload_root=$PayloadRoot;projection_sha256=$projection.projection_sha256;fixture_sha256=$suiteHash;test_root=$bundle.root;test_sha=$bundle.sha;test_repository=$bundle.repository;test_selection_id=$bundle.selection_id;test_contract_sha256=$bundle.contract_sha256;mandatory_product_gates='passed';selected_suite='passed';physical_transport='not-executed';summary_sha256=(Get-FileHash -LiteralPath (Join-Path $WorkRoot 'selected-summary.json')).Hash.ToLowerInvariant()}
+$evidence=[ordered]@{schema='wss-selected-matlab-tests/v1';role=$Role;product_root=$ProductRoot;product_sha=$ProductSha;wrapper_root=$WrapperRoot;wrapper_sha=$WrapperSha;payload_root=$PayloadRoot;projection_sha256=$projection.projection_sha256;fixture_sha256=$suiteHash;test_root=$bundle.root;test_sha=$bundle.sha;test_repository=$bundle.repository;test_selection_id=$bundle.selection_id;test_contract_sha256=$bundle.contract_sha256;mandatory_product_gates='passed';profile=$mandatory.profile;selected_suite='passed';physical_transport='not-executed';summary_sha256=(Get-FileHash -LiteralPath (Join-Path $WorkRoot 'selected-summary.json')).Hash.ToLowerInvariant()}
 $evidence | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $WorkRoot 'test-source-evidence.json')
 $evidence

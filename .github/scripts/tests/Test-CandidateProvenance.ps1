@@ -9,6 +9,9 @@ try {
     $projection=@{schema='wss-matlab-projection/v1';bootstrap_reference=$false;candidate=$candidate;files=$files;projection_sha256=(Get-MatlabProjectionDigest $files)}
     $config=Read-MatlabConfig "$PSScriptRoot/../../matlab-ci.json"
     $summary=@{testsPassed=(Get-MatlabExpectedNativeTests 'wrapper');scenariosPassed=16;cases=@($config.expected_cases | ForEach-Object { @{Id=$_;Passed=$true;Failure=''} })}
+    $summary.profile=@{name='layered-v1';candidate=$candidate;projection_sha256=$projection.projection_sha256;core_sha256=('c'*64)}
+    $summary.multiScenariosPassed=16
+    $summary.multiCases=@((@($config.legacy_expected_cases)+@($config.multidevice_expected_cases)) | ForEach-Object { @{Id=$_;Passed=$true;Failure=''} })
     $summary | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $work 'summary.json')
     $evidence=@{schema='wss-matlab-evidence/v1';execution='matlab-native';role='wrapper';candidate=$candidate;wrapper_sha=('d'*40);cli_sha=('e'*40);fixture_sha=$config.fixture_commit;fixture_sha256=$config.fixture_sha256;matlab_release=$config.matlab_release;summary_sha256=(Get-FileHash (Join-Path $work 'summary.json')).Hash.ToLowerInvariant();projection_sha256=$projection.projection_sha256}
     $evidence | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $work 'evidence.json')

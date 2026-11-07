@@ -8,7 +8,7 @@
   "fixture_repository": "cwru-non-academic/Matlab_WSS_Integration_Lib",
   "fixture_commit": "ad96c800e4ec9045c8961441c235575b53004924",
   "fixture_path": "conformance/runConformance.m",
-  "fixture_sha256": "64eea759e000c96c5f2df6e1bc318039523e9eb2b0d6dcdc5493c2a271ae1a4f",
+  "fixture_sha256": "2f85d4bb6f20b099f3d43064d0dba115d7657c617d936182bb3bc60d8737f2bb",
   "expected_cases": [
     "initialization",
     "direct-analog",
@@ -46,5 +46,21 @@
     "modeled.p.pa.multi",
     "modeled.pd.pw.multi",
     "modeled.pd.pa.multi"
+  ],
+  "fixture_hash_encoding": "utf8-lf",
+  "legacy_fixture_commit": "9aa89b07364c1c79758a1403abc56d69981e9d56",
+  "legacy_fixture_path": "conformance/legacy/runConformance.m",
+  "legacy_fixture_sha256": "ee1063d323a5e02611833f95d71348fc7dfc9cdc4b10c45b6e03dcbc53fcaca0",
+  "legacy_expected_cases": [
+    "initialization",
+    "direct-analog",
+    "normalized.minus-0.2",
+    "normalized.0.0",
+    "normalized.0.37",
+    "normalized.0.5",
+    "normalized.1.0",
+    "normalized.1.2",
+    "runtime-event-edit",
+    "stop-stimulation"
   ]
 }

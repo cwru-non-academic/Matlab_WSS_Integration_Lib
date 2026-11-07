@@ -288,10 +288,9 @@ function Get-MatlabEvidence([string]$Repository,[string]$RunId,[string]$SourceSh
     if ((Get-FileHash (Join-Path $Root 'summary.json')).Hash.ToLowerInvariant() -cne $e.summary_sha256) { throw 'Native summary hash mismatch.' }
     $summary=Get-Content (Join-Path $Root 'summary.json') -Raw | ConvertFrom-Json
     $expectedTests=Get-MatlabExpectedNativeTests $Role
-    if ($summary.testsPassed -ne $expectedTests -or $summary.scenariosPassed -ne 16 -or $summary.cases.Count -ne 16 -or
-        @($summary.cases | Where-Object { $_.Passed -cne $true -or $_.Failure }).Count -or
-        @(Compare-Object @($Config.expected_cases) @($summary.cases.Id) -CaseSensitive).Count) { throw 'Missing/duplicate/failed native canonical cases or tests.' }
+    if ($summary.testsPassed -ne $expectedTests) { throw 'Missing native tests.' }
     $projection=Get-Content (Join-Path $Root 'projection.json') -Raw | ConvertFrom-Json
+    Assert-MatlabNativeSummary $summary $Config $projection
     Assert-MatlabSameCandidate $projection.candidate $Candidate
     if ($projection.bootstrap_reference -cne $false -or $projection.schema -cne 'wss-matlab-projection/v1' -or
         $projection.files.Count -ne $MatlabProjectionFiles.Count -or @(Compare-Object $MatlabProjectionFiles @($projection.files.source) -CaseSensitive).Count -or
