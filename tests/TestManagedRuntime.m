@@ -6,7 +6,8 @@ end
 function testTicksProgressDuringBusyMatlab(testCase)
 directory = tempname;
 mkdir(directory);
-root = fileparts(fileparts(mfilename('fullpath')));
+root = getenv('WSS_MATLAB_PRODUCT_ROOT');
+if isempty(root), root = fileparts(fileparts(mfilename('fullpath'))); end
 copyfile(fullfile(root, 'Config', '*.json'), directory);
 config = wss.WssConfig('ConfigPath', directory, 'LogPath', fullfile(directory, 'host.log'), ...
     'ConformanceMode', true, 'TickIntervalMs', 1);
