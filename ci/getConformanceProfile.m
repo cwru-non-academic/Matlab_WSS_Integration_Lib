@@ -34,6 +34,14 @@ expected = { ...
     'runtimes/unix/lib/net8.0/System.IO.Ports.dll'; ...
     'runtimes/linux-x64/native/libSystem.IO.Ports.Native.so'};
 assert(isequal(sort(paths), sort(reshape(expected, 1, []))), 'Wrong projection inventory.');
+inventory = dir(fullfile(payload, '**', '*'));
+inventory = inventory(~[inventory.isdir]);
+actual = cell(1, numel(inventory));
+for k = 1:numel(inventory)
+    file = fullfile(inventory(k).folder, inventory(k).name);
+    actual{k} = strrep(char(System.IO.Path.GetRelativePath(payload, file)), '\', '/');
+end
+assert(isequal(sort(actual), sort([paths, {'payload-source.json'}])), 'Extra or missing projection files.');
 assert(numel(paths) == 27 && numel(unique(paths)) == 27, 'Incomplete projection inventory.');
 lines = cell(1, numel(paths));
 for k = 1:numel(paths)
