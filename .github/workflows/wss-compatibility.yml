@@ -8,6 +8,23 @@ env:
 permissions:
   contents: read
 jobs:
+  selected-guard-contracts:
+    name: MATLAB selected guard contracts (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Reject incomplete or mutable selected evidence
+        shell: pwsh
+        run: |
+          ./.github/scripts/tests/Test-MatlabSelectedResults.ps1
+          ./.github/scripts/tests/Test-MatlabSelectedIntegrity.ps1
   behavioral-tests:
     name: Integration behavioral tests
     runs-on: windows-latest
@@ -40,6 +57,7 @@ jobs:
           ./.github/scripts/tests/Test-MatlabFixtureProfiles.ps1
           ./.github/scripts/tests/Test-MatlabNativeIsolation.ps1
           ./.github/scripts/tests/Test-MatlabSelectedResults.ps1
+          ./.github/scripts/tests/Test-MatlabSelectedIntegrity.ps1
           ./.github/scripts/tests/Test-ReleaseReceiptContract.ps1
           node --test .github/scripts/tests/ReceiptGuards.test.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Receipt contract guards failed.' }
