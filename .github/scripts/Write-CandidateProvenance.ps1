@@ -25,9 +25,8 @@ $expectedTests=Get-MatlabExpectedNativeTests $Role
 if ($e.schema -cne 'wss-matlab-evidence/v1' -or $e.execution -cne 'matlab-native' -or $e.role -cne $Role -or
     $e.wrapper_sha -cne $WrapperSha -or $e.cli_sha -cne $CliSha -or $e.fixture_sha -cne $config.fixture_commit -or $e.fixture_sha256 -cne $config.fixture_sha256 -or
     $e.matlab_release -cne $config.matlab_release -or (Get-FileHash $summaryPath).Hash.ToLowerInvariant() -cne $e.summary_sha256 -or
-    $summary.testsPassed -ne $expectedTests -or $summary.scenariosPassed -ne 10 -or $summary.cases.Count -ne 10 -or
-    @($summary.cases | Where-Object { $_.Passed -cne $true -or $_.Failure }).Count -or
-    @(Compare-Object @($config.expected_cases) @($summary.cases.Id) -CaseSensitive).Count) { throw 'Normalized binding requires the full successful source-bound native proof.' }
+    $summary.testsPassed -ne $expectedTests) { throw 'Normalized binding requires successful source-bound native proof.' }
+Assert-MatlabNativeSummary $summary $config $projection
 if ($projection.bootstrap_reference -cne $false -or $projection.schema -cne 'wss-matlab-projection/v1' -or $projection.files.Count -ne $MatlabProjectionFiles.Count -or
     @(Compare-Object $MatlabProjectionFiles @($projection.files.source) -CaseSensitive).Count -or
     $projection.projection_sha256 -cne $e.projection_sha256 -or (Get-MatlabProjectionDigest $projection.files) -cne $projection.projection_sha256) { throw 'Rich native projection binding differs.' }

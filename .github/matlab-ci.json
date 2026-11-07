@@ -6,9 +6,9 @@
   "matlab_release": "R2026b",
   "dotnet_sdk": "8.0.x",
   "fixture_repository": "cwru-non-academic/Matlab_WSS_Integration_Lib",
-  "fixture_commit": "0467d92de6a1de4c8207fe83a8ae392309352574",
+  "fixture_commit": "ad96c800e4ec9045c8961441c235575b53004924",
   "fixture_path": "conformance/runConformance.m",
-  "fixture_sha256": "ee1063d323a5e02611833f95d71348fc7dfc9cdc4b10c45b6e03dcbc53fcaca0",
+  "fixture_sha256": "2f85d4bb6f20b099f3d43064d0dba115d7657c617d936182bb3bc60d8737f2bb",
   "expected_cases": [
     "initialization",
     "direct-analog",
@@ -19,7 +19,13 @@
     "normalized.1.0",
     "normalized.1.2",
     "runtime-event-edit",
-    "stop-stimulation"
+    "stop-stimulation",
+    "analog.multichannel-isolation",
+    "normalized.multichannel-isolation",
+    "modeled.p.pw.single",
+    "modeled.p.pa.single",
+    "modeled.pd.pw.single",
+    "modeled.pd.pa.single"
   ],
   "reference_safeguards_commit": "67c9f45362de97e1bb16975a6b58ae521cbc925a",
   "activation_requires": [
@@ -32,5 +38,29 @@
   "channels": [
     "dev",
     "main"
+  ],
+  "multidevice_expected_cases": [
+    "analog.multidevice-isolation",
+    "normalized.multidevice-isolation",
+    "modeled.p.pw.multi",
+    "modeled.p.pa.multi",
+    "modeled.pd.pw.multi",
+    "modeled.pd.pa.multi"
+  ],
+  "fixture_hash_encoding": "utf8-lf",
+  "legacy_fixture_commit": "9aa89b07364c1c79758a1403abc56d69981e9d56",
+  "legacy_fixture_path": "conformance/legacy/runConformance.m",
+  "legacy_fixture_sha256": "ee1063d323a5e02611833f95d71348fc7dfc9cdc4b10c45b6e03dcbc53fcaca0",
+  "legacy_expected_cases": [
+    "initialization",
+    "direct-analog",
+    "normalized.minus-0.2",
+    "normalized.0.0",
+    "normalized.0.37",
+    "normalized.0.5",
+    "normalized.1.0",
+    "normalized.1.2",
+    "runtime-event-edit",
+    "stop-stimulation"
   ]
 }
