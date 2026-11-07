@@ -4,7 +4,7 @@ $ErrorActionPreference='Stop'
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('matlab-retained-proof-'+[guid]::NewGuid())
 New-Item -ItemType Directory -Path $temp|Out-Null
 $null=git -C $temp init -q
-$temp=(git -C $temp rev-parse --show-toplevel).Trim()
+$temp=[IO.Path]::GetFullPath((git -C $temp rev-parse --show-toplevel).Trim())
 $product=Join-Path $temp 'product';$tools=Join-Path $temp 'distinct-tools'
 New-Item -ItemType Directory -Path "$product/artifacts/ci","$tools/.github/scripts" -Force|Out-Null
 function Reject-BeforeEvidence([scriptblock]$Action,[string]$Name) {
