@@ -56,6 +56,7 @@ jobs:
           ./.github/scripts/tests/Test-CandidateProvenance.ps1
           ./.github/scripts/tests/Test-MatlabFixtureProfiles.ps1
           ./.github/scripts/tests/Test-MatlabNativeIsolation.ps1
+          ./.github/scripts/tests/Test-MatlabDiagnosticStaging.ps1
           ./.github/scripts/tests/Test-MatlabSelectedResults.ps1
           ./.github/scripts/tests/Test-MatlabSelectedIntegrity.ps1
           ./.github/scripts/tests/Test-ReleaseReceiptContract.ps1
@@ -140,7 +141,7 @@ jobs:
           repositories: WSSCore
           permission-contents: read
           permission-actions: read
-      - name: Verify preparation payload BLE ABI without radio access
+      - name: Verify actual copied payload BLE ABI without radio access
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         uses: ./.github/actions/mac-artifact-diagnostic
         with:
