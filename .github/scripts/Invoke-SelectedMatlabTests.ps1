@@ -92,7 +92,7 @@ Invoke-SelectedMatlabNative $baseline 'mandatory'
 $mandatory=Get-Content -LiteralPath (Join-Path $stagedProduct "artifacts/ci/$purpose.json") -Raw | ConvertFrom-Json
 $compatibility=Get-Content -LiteralPath (Join-Path $stagedProduct 'artifacts/ci/compatibility.json') -Raw | ConvertFrom-Json
 Assert-MatlabNativeSummary $mandatory $config $projection -RequireModern
-if($mandatory.testsPassed -lt 1 -or $mandatory.scenariosPassed -ne $config.expected_cases.Count -or
+if($mandatory.testsPassed -ne (Get-MatlabExpectedNativeTests $Role) -or $mandatory.scenariosPassed -ne $config.expected_cases.Count -or
     @(Compare-Object @($config.expected_cases) @($mandatory.cases.Id) -CaseSensitive).Count -or
     @($mandatory.cases | Where-Object { !$_.Passed -or $_.Failure }).Count -or
     $mandatory.matlab -cnotmatch '\(R2026b\)' -or $compatibility.Serial -cne 'passed' -or
