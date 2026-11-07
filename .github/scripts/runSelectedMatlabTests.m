@@ -28,6 +28,8 @@ end
 tests = runtests(fullfile(testRoot, 'tests'));
 assert(~isempty(tests), 'Selected test suite is empty.');
 assertSuccess(tests);
+assert(all([tests.Passed]) && ~any([tests.Incomplete]), ...
+    'Selected tests must all pass without skips or incomplete results.');
 if strcmp(role, 'wrapper')
     assert(startsWith(which('runConformance'), [testRoot filesep]), 'Wrong selected conformance source.');
     scenarios = runConformance(@wss.StimulationController, fullfile(wrapper, 'Cs_Libraries'), 'single');
