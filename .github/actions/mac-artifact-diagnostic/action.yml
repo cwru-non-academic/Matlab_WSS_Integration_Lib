@@ -1,5 +1,5 @@
 name: Mac packaged BLE diagnostic
-description: Test the pinned preparation artifact with production MATLAB paths, without release acceptance or radio access.
+description: Test an isolated copy of the actual source-bound payload with production MATLAB paths, without release acceptance or radio access.
 inputs:
   read-token:
     description: Existing App token scoped to read Core artifacts
@@ -25,7 +25,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Stage the immutable preparation payload in a disposable wrapper
+    - name: Stage the actual payload in a disposable wrapper
       shell: pwsh
       env:
         GH_TOKEN: ${{ inputs.read-token }}
