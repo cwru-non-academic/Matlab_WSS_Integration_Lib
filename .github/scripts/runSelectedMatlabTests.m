@@ -36,7 +36,7 @@ if strcmp(role, 'wrapper')
 else
     assert(startsWith(which('runCliConformance'), [testRoot filesep]), 'Wrong selected CLI conformance source.');
     scenarios = runCliConformance(wrapper, fullfile(wrapper, 'Cs_Libraries'), product);
-    multi = [];
+    multi = scenarios([]);
     compatibility = checkCliCompatibility(wrapper, product);
 end
 assert(startsWith(which('wss.WssConfig'), [wrapper filesep]), 'Wrapper source changed during selected tests.');
