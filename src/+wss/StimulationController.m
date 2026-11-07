@@ -130,7 +130,7 @@ classdef StimulationController < handle
             base = sprintf('stim.ch.%d.', obj.channel(finger));
             obj.AddOrUpdateStimParam([base 'maxPW'], maxValue);
             obj.AddOrUpdateStimParam([base 'minPW'], minValue);
-            obj.AddOrUpdateStimParam([base 'amp'], amp);
+            obj.AddOrUpdateStimParam([base 'defaultPA'], amp);
         end
         function SetChannelAmp(obj, finger, value)
             obj.finiteScalar(value);
