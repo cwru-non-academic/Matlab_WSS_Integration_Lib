@@ -20,6 +20,7 @@ $ErrorActionPreference='Stop'
 $ToolsRoot=Split-Path (Split-Path $PSScriptRoot)
 $ToolsSha=((Invoke-MatlabTestGit $ToolsRoot @('rev-parse','HEAD')) -join '').Trim()
 Assert-MatlabToolsCheckout $ToolsRoot $ToolsSha
+$toolsSource=Get-MatlabToolsSource $ToolsRoot
 $ProductRoot=[IO.Path]::GetFullPath($ProductRoot)
 $PayloadRoot=[IO.Path]::GetFullPath($PayloadRoot)
 $WorkRoot=[IO.Path]::GetFullPath($WorkRoot)
@@ -129,9 +130,10 @@ Assert-MatlabTestCheckout $WrapperRoot $WrapperSha
 Assert-MatlabProjection $PayloadRoot $projection
 Assert-MatlabProjection $stagedPayload $projection
 Assert-MatlabToolsCheckout $ToolsRoot $ToolsSha
+Assert-MatlabToolsSource $ToolsRoot $toolsSource
 Assert-MatlabBaselineEvidence $stagedProduct $purpose $baselineEvidence
 $summary=Get-Content -LiteralPath (Join-Path $WorkRoot 'selected-summary.json') -Raw | ConvertFrom-Json
 if($summary.testsPassed -lt 1 -or $summary.matlab -cnotmatch '\(R2026b\)'){throw 'Selected native summary missing real test execution.'}
-$evidence=[ordered]@{schema='wss-selected-matlab-tests/v1';role=$Role;tools_root=$ToolsRoot;tools_sha=$ToolsSha;baseline_evidence=$baselineEvidence;product_root=$ProductRoot;product_sha=$ProductSha;wrapper_root=$WrapperRoot;wrapper_sha=$WrapperSha;payload_root=$PayloadRoot;projection_sha256=$projection.projection_sha256;fixture_sha256=$suiteHash;test_root=$bundle.root;test_sha=$bundle.sha;test_repository=$bundle.repository;test_selection_id=$bundle.selection_id;test_contract_sha256=$bundle.contract_sha256;mandatory_product_gates='passed';profile=$mandatory.profile;selected_suite='passed';physical_transport='not-executed';summary_sha256=(Get-FileHash -LiteralPath (Join-Path $WorkRoot 'selected-summary.json')).Hash.ToLowerInvariant()}
+$evidence=[ordered]@{schema='wss-selected-matlab-tests/v1';role=$Role;tools_root=$ToolsRoot;tools_sha=$ToolsSha;tools_source_hashes=$toolsSource;baseline_evidence=$baselineEvidence;product_root=$ProductRoot;product_sha=$ProductSha;wrapper_root=$WrapperRoot;wrapper_sha=$WrapperSha;payload_root=$PayloadRoot;projection_sha256=$projection.projection_sha256;fixture_sha256=$suiteHash;test_root=$bundle.root;test_sha=$bundle.sha;test_repository=$bundle.repository;test_selection_id=$bundle.selection_id;test_contract_sha256=$bundle.contract_sha256;mandatory_product_gates='passed';profile=$mandatory.profile;selected_suite='passed';physical_transport='not-executed';summary_sha256=(Get-FileHash -LiteralPath (Join-Path $WorkRoot 'selected-summary.json')).Hash.ToLowerInvariant()}
 $evidence | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $WorkRoot 'test-source-evidence.json')
 $evidence
