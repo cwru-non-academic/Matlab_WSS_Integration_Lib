@@ -1,0 +1,123 @@
+{
+  "schema": "wss-matlab-legacy-native-tests/v1",
+  "purpose": "Frozen compatibility inventory discovered with native MATLAB; no future source pins.",
+  "suites": [
+    {
+      "role": "wrapper",
+      "tests_tree": "c33b20366e8d5d3a4665db1c14df9a1972c9e408",
+      "runner_blob": "a305d5321e84f5a5d2507f4ba1d02d3c818f11a4",
+      "reference_source": "2626bb67f7c2c6152bf49d9085489a63ced744cc",
+      "ids": [
+        "TestManagedRuntime/testTicksProgressDuringBusyMatlab",
+        "TestManagedRuntime/testFailedAssemblyLoadCanBeCleanedUp",
+        "TestWssConfig/testRejectsConflictingTransports",
+        "TestWssConfig/testPathsAreAnchoredBeforeWorkingDirectoryChanges",
+        "TestWssConfig/testConstructionHasNoRuntimeSideEffects",
+        "TestWssConfig/testTransportSelectionAndLegacyAliases",
+        "TestWssConfig/testBleRequiresExplicitSelection",
+        "TestWssConfig/testDeclaredMacCapabilityCannotHideMissingAssets"
+      ]
+    },
+    {
+      "role": "wrapper",
+      "tests_tree": "2faccb7a27b8be91f933882924977b0e84ec820d",
+      "runner_blob": "a305d5321e84f5a5d2507f4ba1d02d3c818f11a4",
+      "reference_source": "2cd8a82574306c995549f71d0353d4f4b80c4390",
+      "ids": [
+        "TestConfigurationBoundary/testDefaultAmplitudeReachesNormalizedOutput",
+        "TestConfigurationBoundary/testReloadPathsAndCoreBoundary",
+        "TestConfigurationBoundary/testUninitializedErrorsPropagate",
+        "TestManagedRuntime/testTicksProgressDuringBusyMatlab",
+        "TestManagedRuntime/testFailedAssemblyLoadCanBeCleanedUp",
+        "TestWssConfig/testRejectsConflictingTransports",
+        "TestWssConfig/testPathsAreAnchoredBeforeWorkingDirectoryChanges",
+        "TestWssConfig/testConstructionHasNoRuntimeSideEffects",
+        "TestWssConfig/testTransportSelectionAndLegacyAliases",
+        "TestWssConfig/testBleRequiresExplicitSelection",
+        "TestWssConfig/testDeclaredMacCapabilityCannotHideMissingAssets"
+      ]
+    },
+    {
+      "role": "wrapper",
+      "tests_tree": "c19265d5fd11ee1c677af433c639049f90bce7ea",
+      "runner_blob": "a305d5321e84f5a5d2507f4ba1d02d3c818f11a4",
+      "reference_source": "f6bd9a7a01942092ccd4e446d4e24eaa5d2b5fe5",
+      "ids": [
+        "TestConfigurationBoundary/testDefaultAmplitudeReachesNormalizedOutput",
+        "TestConfigurationBoundary/testReloadPathsAndCoreBoundary",
+        "TestConfigurationBoundary/testUninitializedErrorsPropagate",
+        "TestConfigurationReload/testFailedInitialHostRequiresCleanup",
+        "TestConfigurationReload/testFailedReloadRetainsSnapshotAndRequiresRecovery",
+        "TestConfigurationReload/testConstructorFailureRetainsCandidateAndOriginalError",
+        "TestConfigurationReload/testConstructorFailureDuringReloadRetainsValidatedSnapshot",
+        "TestConfigurationReload/testShutdownAbandonsPendingSnapshotBeforeCleanupRetry",
+        "TestConfigurationReload/testRetiredHostStopsTicksAndDetachesLogs",
+        "TestConfigurationReload/testProfileFileDefaultsAndCoreReset",
+        "TestConfigurationReload/testInvalidBundleKeepsActiveState",
+        "TestManagedRuntime/testTicksProgressDuringBusyMatlab",
+        "TestManagedRuntime/testFailedAssemblyLoadCanBeCleanedUp",
+        "TestWssConfig/testRejectsConflictingTransports",
+        "TestWssConfig/testPathsAreAnchoredBeforeWorkingDirectoryChanges",
+        "TestWssConfig/testConstructionHasNoRuntimeSideEffects",
+        "TestWssConfig/testTransportSelectionAndLegacyAliases",
+        "TestWssConfig/testBleRequiresExplicitSelection",
+        "TestWssConfig/testDeclaredMacCapabilityCannotHideMissingAssets"
+      ]
+    },
+    {
+      "role": "cli",
+      "tests_tree": "15a6aa05da7fdd9ced10507ec67d62b6085dc0b1",
+      "runner_blob": "f4c83212ea829af25d7409c19d996ed3d78e40f5",
+      "reference_source": "91a20448fe1e1f510475347a071db7720838f969",
+      "ids": [
+        "TestCliOptions/testResolvesAppOwnedPaths",
+        "TestCliOptions/testRejectsBadArgumentsBeforeControllerCreation",
+        "TestCliOptions/testHelpDoesNotRequireInitializedSubmodule",
+        "TestCliOptions/testCSharpSyntaxAndBleSelectors",
+        "TestCliOptions/testStatusReportsTickFailureWithoutGuardedStateCalls",
+        "TestCliRuntime/testQuitAndCommandFailureDisposeHost",
+        "TestCliRuntime/testBleArgumentsReachActualCoreTransportWithoutConnecting",
+        "TestCliRuntime/testSerialSmokeAndNamedTransportUseProductionEntry",
+        "TestCliRuntime/testConformanceRejectsMissingSelectedPayload"
+      ]
+    },
+    {
+      "role": "cli",
+      "tests_tree": "a2c48e801ae6342e89f23a547d135cdba3465896",
+      "runner_blob": "f4c83212ea829af25d7409c19d996ed3d78e40f5",
+      "reference_source": "b9280a009642bfd1595e5cd41845a86dcac36ac8",
+      "ids": [
+        "TestCliOptions/testResolvesAppOwnedPaths",
+        "TestCliOptions/testRejectsBadArgumentsBeforeControllerCreation",
+        "TestCliOptions/testHelpDoesNotRequireInitializedSubmodule",
+        "TestCliOptions/testCSharpSyntaxAndBleSelectors",
+        "TestCliOptions/testStatusReportsTickFailureWithoutGuardedStateCalls",
+        "TestCliRuntime/testQuitAndCommandFailureDisposeHost",
+        "TestCliRuntime/testBleArgumentsReachActualCoreTransportWithoutConnecting",
+        "TestCliRuntime/testSerialSmokeAndNamedTransportUseProductionEntry",
+        "TestCliRuntime/testConformanceRejectsMissingSelectedPayload",
+        "TestCommandReloadBoundary/testReloadPathsAndCoreBoundary",
+        "TestCommandReloadBoundary/testUninitializedErrorsPropagate"
+      ]
+    },
+    {
+      "role": "cli",
+      "tests_tree": "32940b8d7887fc93574c301c6a966215de93a96f",
+      "runner_blob": "f4c83212ea829af25d7409c19d996ed3d78e40f5",
+      "reference_source": "c92aaea1d3240a0c9f517bbdb5b96709e33dbf6c",
+      "ids": [
+        "TestCliOptions/testResolvesAppOwnedPaths",
+        "TestCliOptions/testRejectsBadArgumentsBeforeControllerCreation",
+        "TestCliOptions/testHelpDoesNotRequireInitializedSubmodule",
+        "TestCliOptions/testCSharpSyntaxAndBleSelectors",
+        "TestCliOptions/testStatusReportsTickFailureWithoutGuardedStateCalls",
+        "TestCliRuntime/testQuitAndCommandFailureDisposeHost",
+        "TestCliRuntime/testBleArgumentsReachActualCoreTransportWithoutConnecting",
+        "TestCliRuntime/testSerialSmokeAndNamedTransportUseProductionEntry",
+        "TestCliRuntime/testConformanceRejectsMissingSelectedPayload",
+        "TestCommandReloadBoundary/testReloadPathsAndCoreBoundary",
+        "TestCommandReloadBoundary/testUninitializedErrorsPropagate"
+      ]
+    }
+  ]
+}

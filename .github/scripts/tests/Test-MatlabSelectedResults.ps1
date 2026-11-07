@@ -9,15 +9,16 @@ $compatibility=@{Serial='passed';Ble='passed'}
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('matlab-completeness-'+[guid]::NewGuid())
 New-Item -ItemType Directory -Path $temp | Out-Null
 foreach($role in 'wrapper','cli') {
-    $expected=Get-MatlabExpectedNativeTests $role
+    $expected=if ($role -ceq 'wrapper') {8} else {9}
+    $contract=@{role=$role;ids=@(1..$expected|ForEach-Object{"TestFixture/test$_"});legacy=$true}
     $summary.testsPassed=$expected
-    Assert-MatlabSelectedBaseline $summary $config $projection $compatibility $role
+    Assert-MatlabSelectedBaseline $summary $config $projection $compatibility $role $contract
     foreach($count in @(0,1,($expected-1),($expected+1))) {
         $summary.testsPassed=$count
         $output=Join-Path $temp "$role-$count-evidence.json"
         $rejected=$false
         try {
-            Assert-MatlabSelectedBaseline $summary $config $projection $compatibility $role
+            Assert-MatlabSelectedBaseline $summary $config $projection $compatibility $role $contract
             [IO.File]::WriteAllText($output,'unexpected evidence')
         } catch {
             if($_.Exception.Message -cne 'Mandatory native evidence is incomplete.'){throw}
