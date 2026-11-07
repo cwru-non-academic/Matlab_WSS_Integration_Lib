@@ -11,7 +11,8 @@ function Assert-MatlabToolsCheckout([string]$Root,[string]$Sha) {
 }
 function Get-MatlabBaselineEvidence([string]$Root,[ValidateSet('behavioral','general')][string]$Purpose) {
     $directory=Assert-MatlabTestPath $Root 'artifacts/ci'
-    $expected=@("$Purpose.json",'compatibility.json','matlab-root.txt')
+    $expected=@("$Purpose.json",'compatibility.json')
+    if($Purpose -ceq 'general'){$expected+='matlab-root.txt'}
     $entries=@(Get-ChildItem -LiteralPath $directory -Force)
     if($entries.Count -ne $expected.Count -or @($entries|Where-Object PSIsContainer).Count -or
        @(Compare-Object $expected @($entries.Name) -CaseSensitive).Count){throw 'Required baseline evidence file inventory changed.'}
