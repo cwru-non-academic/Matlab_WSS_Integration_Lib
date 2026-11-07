@@ -15,6 +15,7 @@ $ErrorActionPreference='Stop'
 . "$PSScriptRoot/MatlabTestSource.ps1"
 . "$PSScriptRoot/MatlabContract.ps1"
 . "$PSScriptRoot/MatlabNativeIsolation.ps1"
+. "$PSScriptRoot/MatlabSelectedResults.ps1"
 $ProductRoot=[IO.Path]::GetFullPath($ProductRoot)
 $PayloadRoot=[IO.Path]::GetFullPath($PayloadRoot)
 $WorkRoot=[IO.Path]::GetFullPath($WorkRoot)
@@ -91,12 +92,7 @@ $baseline="restoredefaultpath; addpath($(Quote-Matlab (Join-Path $stagedProduct 
 Invoke-SelectedMatlabNative $baseline 'mandatory'
 $mandatory=Get-Content -LiteralPath (Join-Path $stagedProduct "artifacts/ci/$purpose.json") -Raw | ConvertFrom-Json
 $compatibility=Get-Content -LiteralPath (Join-Path $stagedProduct 'artifacts/ci/compatibility.json') -Raw | ConvertFrom-Json
-Assert-MatlabNativeSummary $mandatory $config $projection -RequireModern
-if($mandatory.testsPassed -ne (Get-MatlabExpectedNativeTests $Role) -or $mandatory.scenariosPassed -ne $config.expected_cases.Count -or
-    @(Compare-Object @($config.expected_cases) @($mandatory.cases.Id) -CaseSensitive).Count -or
-    @($mandatory.cases | Where-Object { !$_.Passed -or $_.Failure }).Count -or
-    $mandatory.matlab -cnotmatch '\(R2026b\)' -or $compatibility.Serial -cne 'passed' -or
-    $compatibility.Ble -cnotin @('passed','unsupported-by-legacy-payload','unsupported-by-Core')) { throw 'Mandatory native evidence is incomplete.' }
+Assert-MatlabSelectedBaseline $mandatory $config $projection $compatibility $Role
 $selected=Join-Path $WorkRoot 'selected' 
 foreach($file in $bundle.hashes){
     $destination=Join-Path $selected $file.path
