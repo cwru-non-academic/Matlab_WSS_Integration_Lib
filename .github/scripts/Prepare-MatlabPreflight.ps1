@@ -5,7 +5,8 @@ param(
     [Parameter(Mandatory)][string]$WorkRoot,
     [Parameter(Mandatory)][string]$CandidateJson,
     [Parameter(Mandatory)][string]$WrapperSha,
-    [Parameter(Mandatory)][string]$CliSha
+    [Parameter(Mandatory)][string]$CliSha,
+    [switch]$VerifyPackageFixtures
 )
 . "$PSScriptRoot/MatlabPromotion.ps1"
 if ($env:GITHUB_ACTIONS -cne 'true' -or $env:GITHUB_REF -cne (Get-WssCiChannelContext).ref -or $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch') { throw 'Only trusted dev dispatch may stage a candidate.' }
@@ -26,6 +27,17 @@ Assert-MatlabProducer $candidate
 & "$PSScriptRoot/Resolve-WssRelease.ps1" -RunId $candidate.run_id -ExpectedArtifactId $candidate.artifact_id -ExpectedCommit $candidate.commit -ArchiveName $candidate.archive -ExpectedSha256 $candidate.sha256 -OutputRoot (Join-Path $WorkRoot 'resolved')
 $resolved=Get-Content (Join-Path $WorkRoot 'resolved/candidate.json') -Raw | ConvertFrom-Json
 Assert-MatlabSameCandidate $resolved $candidate
+# Validate the full candidate before reducing it to the MATLAB DLL projection.
+# Core owns these rejection fixtures; use the same locked checkout as the guard.
+if ($VerifyPackageFixtures) {
+    if (!$IsLinux) { throw 'Universal package fixtures require the Linux case-sensitive lane.' }
+    $coreRoot=$env:WSS_CORE_TOOLS_ROOT
+    if ([string]::IsNullOrWhiteSpace($coreRoot)) { throw 'Locked Core tooling root is required.' }
+    dotnet build (Join-Path $coreRoot 'tools/ArtifactBuild/ArtifactBuild.csproj') --configuration Debug -p:RestoreLockedMode=true
+    if ($LASTEXITCODE -ne 0) { throw 'Core package validator build failed.' }
+    python (Join-Path $coreRoot 'tests/Packaging/verify_universal.py') (Join-Path $WorkRoot 'resolved/extracted/WSS-Universal')
+    if ($LASTEXITCODE -ne 0) { throw 'Core universal package rejection fixtures failed.' }
+}
 # The native suite is pinned by normalized UTF-8 source hash, independent of checkout EOL.
 $suite=[IO.File]::ReadAllText((Join-Path $WrapperRoot $config.fixture_path)).Replace("`r`n","`n")
 $suiteHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($suite))).ToLowerInvariant()

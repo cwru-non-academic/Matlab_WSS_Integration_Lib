@@ -177,6 +177,14 @@ jobs:
           ref: ${{ steps.guard.outputs.commit }}
           path: workflow-guard
           persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        if: matrix.name == 'Ubuntu'
+        with:
+          dotnet-version: '9.0.x'
+      - uses: actions/setup-python@v5
+        if: matrix.name == 'Ubuntu'
+        with:
+          python-version: '3.x'
       - name: Validate immutable producer and stage exact DLL projection
         shell: pwsh
         env:
@@ -185,7 +193,7 @@ jobs:
           WRAPPER_SHA: ${{ inputs.wrapper_sha }}
           CLI_SHA: ${{ inputs.cli_sha }}
         run: |
-          ./wrapper/.github/scripts/Prepare-MatlabPreflight.ps1 -Role wrapper -WrapperRoot "$env:GITHUB_WORKSPACE/wrapper" -CliRoot "$env:GITHUB_WORKSPACE/cli" -WorkRoot "$env:RUNNER_TEMP/matlab-preflight" -CandidateJson $env:CANDIDATE_JSON -WrapperSha $env:WRAPPER_SHA -CliSha $env:CLI_SHA
+          ./wrapper/.github/scripts/Prepare-MatlabPreflight.ps1 -Role wrapper -WrapperRoot "$env:GITHUB_WORKSPACE/wrapper" -CliRoot "$env:GITHUB_WORKSPACE/cli" -WorkRoot "$env:RUNNER_TEMP/matlab-preflight" -CandidateJson $env:CANDIDATE_JSON -WrapperSha $env:WRAPPER_SHA -CliSha $env:CLI_SHA -VerifyPackageFixtures:($env:RUNNER_OS -ceq 'Linux')
       - name: Run reusable native MATLAB candidate validation
         uses: ./source/.github/actions/native-matlab
         with:
