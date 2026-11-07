@@ -213,3 +213,11 @@ Deploy this declaration, hook and approved readiness configuration on both main
 and dev before producing a staged candidate. Verify registered workflows,
 rulesets and existing App access before the separately authorized Core rollout.
 Keep `auto_merge` false; dependency merges and candidate validation remain required.
+
+## Reload behavior depends on the installed Core payload
+
+`UpdateChannelParams` writes `stim.ch.N.defaultPA`, the amplitude used by normalized stimulation, on both supported payload profiles.
+
+With modern Core (including 2251ccb), `LoadParamsJson()` reloads all three JSON files from anchored startup defaults. A directory overload loads all three standard filenames there; an explicit calibration file uses that file with startup-default Core and model files, not its siblings. Core validates the bundle and restarts when effective Core settings change. `LoadCoreConfigFile()` delegates to Core's coordinated reload/reinitialization of all active files. It does not preserve unsaved calibration/model changes. The wrapper does not add another restart policy.
+
+Historical Core payloads (including 76803c03 and 50afc280) only reload calibration through `LoadParamsJson`; the parameterless call uses the active calibration file. Their `LoadConfigFile` only reads Core JSON and does not rebuild the client. They do not provide modern all-JSON reload/reinitialization. A supported modern payload adoption is required for those semantics; the compatibility profile is not evidence of that adoption. `resetRadio()` remains shutdown followed by initialization from the wrapper's configured startup directory.
