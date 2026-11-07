@@ -72,6 +72,21 @@ if($caseSensitive){
     Reject-BeforeEvidence {Assert-MatlabToolsSource $tools $toolsSnapshot} 'case-distinct-tools'
     Remove-Item -LiteralPath "$tools/.github/scripts/INVOKE-SELECTEDMATLABTESTS.PS1"
 }
+# Canonically equivalent Unicode names must remain distinct inventory identities.
+$composed=".github/scripts/$([char]0x00e9).ps1"
+$decomposed=".github/scripts/e$([char]0x0301).ps1"
+$unicodeBefore=@([pscustomobject]@{path=$composed;type='file';sha256=('a'*64)})
+$unicodeAfter=@([pscustomobject]@{path=$decomposed;type='file';sha256=('a'*64)})
+if([StringComparer]::Ordinal.Equals(($unicodeBefore|ConvertTo-Json -Compress),($unicodeAfter|ConvertTo-Json -Compress))){throw 'Unicode fixture must have distinct code points.'}
+# Inject only the enumerated inventory; exercise the production comparison itself.
+function Invoke-UnicodeInventoryRegression {
+    function Get-MatlabToolsSource { $unicodeAfter }
+    Reject-BeforeEvidence {Assert-MatlabToolsSource $tools $unicodeBefore} 'unicode-equivalent-tools-rename'
+    function Get-MatlabBaselineEvidence { $unicodeAfter }
+    Reject-BeforeEvidence {Assert-MatlabBaselineEvidence $product behavioral $unicodeBefore} 'unicode-equivalent-baseline-identity'
+}
+Invoke-UnicodeInventoryRegression
+'PASS ordinal Unicode inventory identities rejected despite equivalent text.'
 $original=[IO.Path]::GetFullPath("$product/artifacts/ci")
 $moved=[IO.Path]::GetFullPath("$product/artifacts/original-ci")
 if(!$original.StartsWith($temp+[IO.Path]::DirectorySeparatorChar) -or !$moved.StartsWith($temp+[IO.Path]::DirectorySeparatorChar)){throw 'Unsafe fixture move'}
