@@ -24,7 +24,7 @@ function Get-MatlabBaselineEvidence([string]$Root,[ValidateSet('behavioral','gen
 }
 function Assert-MatlabBaselineEvidence([string]$Root,[string]$Purpose,$Snapshot) {
     $actual=Get-MatlabBaselineEvidence $Root $Purpose
-    if(($actual|ConvertTo-Json -Compress) -cne ($Snapshot|ConvertTo-Json -Compress)){throw 'Selected suite modified mandatory baseline evidence.'}
+    if(![StringComparer]::Ordinal.Equals(($actual|ConvertTo-Json -Compress),($Snapshot|ConvertTo-Json -Compress))){throw 'Selected suite modified mandatory baseline evidence.'}
 }
 function Get-MatlabToolsSource([string]$Root) {
     $paths=[Collections.Generic.List[string]]::new()
@@ -50,5 +50,5 @@ function Get-MatlabToolsSource([string]$Root) {
 }
 function Assert-MatlabToolsSource([string]$Root,$Snapshot) {
     $actual=Get-MatlabToolsSource $Root
-    if(($actual|ConvertTo-Json -Compress) -cne ($Snapshot|ConvertTo-Json -Compress)){throw 'Selected suite modified executing MATLAB tools.'}
+    if(![StringComparer]::Ordinal.Equals(($actual|ConvertTo-Json -Compress),($Snapshot|ConvertTo-Json -Compress))){throw 'Selected suite modified executing MATLAB tools.'}
 }
