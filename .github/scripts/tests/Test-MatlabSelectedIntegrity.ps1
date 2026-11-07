@@ -24,7 +24,8 @@ $caseProbe=Join-Path $temp 'case-probe'
 New-Item -ItemType Directory -Path $caseProbe|Out-Null
 [IO.File]::WriteAllText("$caseProbe/probe",'same')
 [IO.File]::WriteAllText("$caseProbe/PROBE",'same')
-if(@(Get-ChildItem -LiteralPath $caseProbe).Count -eq 2){
+$caseSensitive=@(Get-ChildItem -LiteralPath $caseProbe).Count -eq 2
+if($caseSensitive){
     [IO.File]::WriteAllText("$product/artifacts/ci/BEHAVIORAL.json",'baseline')
     Reject-BeforeEvidence {Get-MatlabBaselineEvidence $product behavioral} 'case-distinct-extra'
     Remove-Item -LiteralPath "$product/artifacts/ci/BEHAVIORAL.json"
@@ -50,14 +51,27 @@ $null=git -C $tools -c user.name=Fixture -c user.email=fixture@example.invalid c
 if($LASTEXITCODE -ne 0){throw 'Cannot initialize tools fixture'}
 $sha=(git -C $tools rev-parse HEAD).Trim()
 Assert-MatlabToolsCheckout $tools $sha
+$toolsSnapshot=Get-MatlabToolsSource $tools
+Assert-MatlabToolsSource $tools $toolsSnapshot
 [IO.File]::WriteAllText("$tools/.github/scripts/Invoke-SelectedMatlabTests.ps1",'# changed tool')
 Reject-BeforeEvidence {Assert-MatlabToolsCheckout $tools $sha} 'distinct-tools-mutation'
+Reject-BeforeEvidence {Assert-MatlabToolsSource $tools $toolsSnapshot} 'tools-content-without-git'
 [IO.File]::WriteAllText("$tools/.github/scripts/Invoke-SelectedMatlabTests.ps1",'# trusted tool')
 [IO.File]::WriteAllText("$tools/.git/info/exclude",'*.ignored')
 [IO.File]::WriteAllText("$tools/.github/scripts/override.ignored",'override')
 Reject-BeforeEvidence {Assert-MatlabToolsCheckout $tools $sha} 'ignored-tools-override'
 Remove-Item -LiteralPath "$tools/.github/scripts/override.ignored"
 Assert-MatlabToolsCheckout $tools $sha
+Assert-MatlabToolsSource $tools $toolsSnapshot
+New-Item -ItemType Directory -Path "$tools/.github/scripts/new-empty"|Out-Null
+Reject-BeforeEvidence {Assert-MatlabToolsSource $tools $toolsSnapshot} 'tools-directory-inventory'
+Remove-Item -LiteralPath "$tools/.github/scripts/new-empty"
+Assert-MatlabToolsSource $tools $toolsSnapshot
+if($caseSensitive){
+    [IO.File]::WriteAllText("$tools/.github/scripts/INVOKE-SELECTEDMATLABTESTS.PS1",'# trusted tool')
+    Reject-BeforeEvidence {Assert-MatlabToolsSource $tools $toolsSnapshot} 'case-distinct-tools'
+    Remove-Item -LiteralPath "$tools/.github/scripts/INVOKE-SELECTEDMATLABTESTS.PS1"
+}
 $original=[IO.Path]::GetFullPath("$product/artifacts/ci")
 $moved=[IO.Path]::GetFullPath("$product/artifacts/original-ci")
 if(!$original.StartsWith($temp+[IO.Path]::DirectorySeparatorChar) -or !$moved.StartsWith($temp+[IO.Path]::DirectorySeparatorChar)){throw 'Unsafe fixture move'}
