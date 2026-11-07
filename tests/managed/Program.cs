@@ -64,6 +64,44 @@ try
     catch (InvalidOperationException error) when (error.InnerException?.Message == "tick failure") { }
     Console.WriteLine("PASS tick failure propagation and stop attempt");
 
+    var cleanupBroken = new Probe { FailDispose = true };
+    var cleanupHost = new ControllerHost(cleanupBroken, 1, Path.Combine(root, "cleanup.log"));
+    cleanupHost.Initialize();
+    try { cleanupHost.Dispose(); throw new Exception("Cleanup failure was swallowed."); }
+    catch (AggregateException) { }
+    try { cleanupHost.Call("Command", new object[] { 5 }); throw new Exception("Failed cleanup owner remained callable."); }
+    catch (ObjectDisposedException) { }
+    cleanupBroken.FailDispose = false;
+    cleanupHost.Dispose();
+    Check(cleanupBroken.Stops == 1 && cleanupBroken.Shutdowns == 1 && cleanupBroken.Disposals == 2,
+        "Cleanup retry repeated successful stages or did not retry failed disposal.");
+    Console.WriteLine("PASS strict cleanup failure and retry");
+
+    var failedConstruction = new Probe { FailInitialize = true, FailDispose = true };
+    var retainedHost = new ControllerHost(failedConstruction, 1, Path.Combine(root, "retained.log"));
+    try { retainedHost.Initialize(); throw new Exception("Combined initialization/cleanup failure was swallowed."); }
+    catch (AggregateException) { }
+    try { retainedHost.Initialize(); throw new Exception("Failed owner allowed initialization again."); }
+    catch (ObjectDisposedException) { }
+    Check(failedConstruction.Initializations == 1, "Failed owner was reconstructed before cleanup.");
+    failedConstruction.FailDispose = false;
+    retainedHost.Dispose();
+    Check(failedConstruction.Disposals == 2 && failedConstruction.Shutdowns == 1,
+        "Initialization cleanup failure did not retain retryable ownership.");
+    Console.WriteLine("PASS failed initialization retains cleanup owner and blocks reuse");
+
+    var terminal = new Probe { FailStop = true };
+    var terminalHost = new ControllerHost(terminal, 1, Path.Combine(root, "terminal.log"));
+    terminalHost.Initialize();
+    try { terminalHost.Dispose(); throw new Exception("Stop failure was swallowed."); }
+    catch (AggregateException) { }
+    terminalHost.Dispose();
+    Check(terminal.Stops == 1 && terminal.Shutdowns == 1 && terminal.Disposals == 1,
+        "Terminally disposed owner received another lifecycle call.");
+    Console.WriteLine("PASS terminal disposal prevents invalid lifecycle retries");
+
+    ReloadChecks.Run(root);
+
     // Read a temporary config through the shipped DLL, without a transport.
     string receiverConfig = Path.Combine(root, "receiver-config.json");
     File.WriteAllText(receiverConfig, "{\"maxWSS\":1,\"firmware\":\"H03\",\"broadcastTarget\":\"0x8F\",\"wssTargets\":[\"0x80\",\"0x82\",\"0x83\"]}");
@@ -85,6 +123,8 @@ public sealed class Probe
 {
     public bool FailInitialize;
     public bool FailTick;
+    public bool FailDispose;
+    public bool FailStop;
     public int Initializations, Commands, Stops, Shutdowns, Disposals, Overlaps;
     private int entered;
     private bool started = true;
@@ -110,9 +150,9 @@ public sealed class Probe
         if (value != 5) throw new Exception("Numeric argument conversion changed.");
         Enter(); Commands++; Thread.SpinWait(1000); Exit();
     }
-    public void StopStim(ProbeTarget target) { Stops++; }
+    public void StopStim(ProbeTarget target) { Stops++; if (FailStop) throw new InvalidOperationException("stop failure"); }
     public void Shutdown() { Shutdowns++; }
-    public void Dispose() { Disposals++; }
+    public void Dispose() { Disposals++; if (FailDispose) throw new InvalidOperationException("dispose failure"); }
     private void Enter() { if (Interlocked.Increment(ref entered) != 1) Interlocked.Increment(ref Overlaps); }
     private void Exit() { Interlocked.Decrement(ref entered); }
 }
