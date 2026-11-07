@@ -1,0 +1,25 @@
+{
+  "schema": "wss-matlab-native-tests/v1",
+  "role": "wrapper",
+  "ids": [
+    "TestConfigurationBoundary/testDefaultAmplitudeReachesNormalizedOutput",
+    "TestConfigurationBoundary/testReloadPathsAndCoreBoundary",
+    "TestConfigurationBoundary/testUninitializedErrorsPropagate",
+    "TestConfigurationReload/testFailedInitialHostRequiresCleanup",
+    "TestConfigurationReload/testFailedReloadRetainsSnapshotAndRequiresRecovery",
+    "TestConfigurationReload/testConstructorFailureRetainsCandidateAndOriginalError",
+    "TestConfigurationReload/testConstructorFailureDuringReloadRetainsValidatedSnapshot",
+    "TestConfigurationReload/testShutdownAbandonsPendingSnapshotBeforeCleanupRetry",
+    "TestConfigurationReload/testRetiredHostStopsTicksAndDetachesLogs",
+    "TestConfigurationReload/testProfileFileDefaultsAndCoreReset",
+    "TestConfigurationReload/testInvalidBundleKeepsActiveState",
+    "TestManagedRuntime/testTicksProgressDuringBusyMatlab",
+    "TestManagedRuntime/testFailedAssemblyLoadCanBeCleanedUp",
+    "TestWssConfig/testRejectsConflictingTransports",
+    "TestWssConfig/testPathsAreAnchoredBeforeWorkingDirectoryChanges",
+    "TestWssConfig/testConstructionHasNoRuntimeSideEffects",
+    "TestWssConfig/testTransportSelectionAndLegacyAliases",
+    "TestWssConfig/testBleRequiresExplicitSelection",
+    "TestWssConfig/testDeclaredMacCapabilityCannotHideMissingAssets"
+  ]
+}

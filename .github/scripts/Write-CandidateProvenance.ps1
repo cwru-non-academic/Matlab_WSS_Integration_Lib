@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory)][string]$WrapperSha,
     [Parameter(Mandatory)][string]$CliSha,
     [Parameter(Mandatory)][string]$EvidenceRoot,
-    [Parameter(Mandatory)][string]$OutputPath
+    [Parameter(Mandatory)][string]$OutputPath,
+    [string]$SourceRoot=$env:WSS_TARGET_ROOT
 )
 . "$PSScriptRoot/MatlabContract.ps1"
 $candidate=$CandidateJson | ConvertFrom-Json
@@ -21,11 +22,12 @@ $summary=Get-Content $summaryPath -Raw | ConvertFrom-Json
 $config=Read-MatlabConfig "$PSScriptRoot/../matlab-ci.json"
 Assert-MatlabSameCandidate $e.candidate $candidate
 Assert-MatlabSameCandidate $projection.candidate $candidate
-$expectedTests=Get-MatlabExpectedNativeTests $Role
+$sourceSha=if ($Role -ceq 'wrapper') { $WrapperSha } else { $CliSha }
+$nativeContract=Get-MatlabNativeTestContract $Role $sourceSha $SourceRoot
+Assert-MatlabNativeTests $summary $nativeContract
 if ($e.schema -cne 'wss-matlab-evidence/v1' -or $e.execution -cne 'matlab-native' -or $e.role -cne $Role -or
     $e.wrapper_sha -cne $WrapperSha -or $e.cli_sha -cne $CliSha -or $e.fixture_sha -cne $config.fixture_commit -or $e.fixture_sha256 -cne $config.fixture_sha256 -or
-    $e.matlab_release -cne $config.matlab_release -or (Get-FileHash $summaryPath).Hash.ToLowerInvariant() -cne $e.summary_sha256 -or
-    $summary.testsPassed -ne $expectedTests) { throw 'Normalized binding requires successful source-bound native proof.' }
+    $e.matlab_release -cne $config.matlab_release -or (Get-FileHash $summaryPath).Hash.ToLowerInvariant() -cne $e.summary_sha256) { throw 'Normalized binding requires successful source-bound native proof.' }
 Assert-MatlabNativeSummary $summary $config $projection
 if ($projection.bootstrap_reference -cne $false -or $projection.schema -cne 'wss-matlab-projection/v1' -or $projection.files.Count -ne $MatlabProjectionFiles.Count -or
     @(Compare-Object $MatlabProjectionFiles @($projection.files.source) -CaseSensitive).Count -or
