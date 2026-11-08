@@ -1,5 +1,24 @@
 # MATLAB propagation preparation
 
+## Current source declarations
+
+The committed [MATLAB CI config](../.github/matlab-ci.json) declares
+`baseline_ready: true` and `candidate_preflight_ready: true`; the
+[pipeline contract](../automation/pipeline-contract.json) declares `enabled: true`
+and `auto_merge: false`. Promotion also requires the effective
+`WSS_MATLAB_PROPAGATION_ENABLED` gate. These source declarations do not establish
+live variables, App access, rulesets, or acceptance of a candidate. Current native
+validation uses exact product test inventories and profile-specific canonical
+suites, including paired modern stages. Declared Mac BLE payloads require native
+packaged ABI proof on both Intel and ARM. See [native CI](../ci/README.md).
+
+## Historical preparation record
+
+The preparation notes below retain the original disabled-state rollout sequence,
+initial fixture assumptions and frozen producer tuple. They are historical
+context, not current readiness flags, workflow requirements or acceptance proof.
+Use the current source declarations and native CI contract above for today's checks.
+
 Status: receiver source prepared; **disabled**. `.github/matlab-ci.json` has `baseline_ready: false`, the existing pipeline contract has `enabled: false`, and promotion jobs additionally require repository variable `WSS_MATLAB_PROPAGATION_ENABLED` equal to `true`. This change does not set that variable, change rulesets/App access, or dispatch Core candidates.
 
 ## Trust and review sequence
