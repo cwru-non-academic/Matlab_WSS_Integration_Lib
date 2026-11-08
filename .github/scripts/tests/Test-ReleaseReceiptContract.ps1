@@ -15,3 +15,10 @@ Reject-Receipt { Read-MatlabReceiptApplicationMarker '' 'cli' }
 Reject-Receipt { Invoke-MatlabGh -Arguments @('api','--method','POST','repos/cwru-non-academic/WSSCore/actions/workflows/artifacts.yml/dispatches') }
 Reject-Receipt { Invoke-MatlabGh -Arguments @('pr','merge','1') }
 Write-Output 'PASS frozen paired sources, canonical merged-wrapper marker and read-only receipt contracts. No live proof emitted.'
+
+# Keep receipt proof binding and real bridge composition mandatory in the hosted
+# family contract suite. Child processes isolate transport fixtures from callers.
+& pwsh -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'Test-NativeReceiptBinding.ps1')
+if ($LASTEXITCODE -ne 0) { throw 'Native receipt binding contract tests failed.' }
+& pwsh -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'Test-NativeReceiptComposition.ps1') -Channel (Get-WssCiChannel)
+if ($LASTEXITCODE -ne 0) { throw 'Native receipt bridge composition tests failed.' }
