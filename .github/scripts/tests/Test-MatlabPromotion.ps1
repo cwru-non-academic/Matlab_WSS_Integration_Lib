@@ -144,6 +144,8 @@ Assert-Rejected { Test-MatlabStagedProducer $candidate } 'mismatched staged appl
 $reviewed=[pscustomobject]@{number=20;state='closed';merged_at='2026-11-03T20:24:25Z';merge_commit_sha=('f'*40)
     head=@{sha=('d'*40);ref='automation/matlab-wss-fixture';repo=@{full_name=$MatlabWrapperRepository}}
     base=@{ref='dev';repo=@{full_name=$MatlabWrapperRepository}}}
+# Match the real PR API representation on this PowerShell version, including dates.
+$reviewed=$reviewed | ConvertTo-Json -Depth 12 | ConvertFrom-Json
 $success=[pscustomobject]@{id=789;repository=@{full_name=$MatlabWrapperRepository};head_repository=@{full_name=$MatlabWrapperRepository}
     path='.github/workflows/wss-compatibility.yml';event='pull_request';head_sha=$reviewed.head.sha;head_branch=$reviewed.head.ref
     status='completed';conclusion='success';pull_requests=@(@{number=20})}
