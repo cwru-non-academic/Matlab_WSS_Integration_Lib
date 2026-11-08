@@ -35,6 +35,10 @@ test('fresh actual-merge normal proof rejects PR checkout and failed superseding
 });
 test('receipt emitter must be the exact current dev run and attempt',()=>{
   const t=target('matlab-cli'),env={GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:t.repository,GITHUB_REF:'refs/heads/dev',GITHUB_SHA:sha,GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_RUN_ID:'1',GITHUB_RUN_ATTEMPT:'1'};
+  env.GITHUB_WORKFLOW_SHA=sha;
+  env.GITHUB_WORKFLOW_REF=`${t.repository}/.github/workflows/release-receipt.yml@refs/heads/dev`;
   const r={id:1,run_attempt:1,repository:{full_name:t.repository},head_repository:{full_name:t.repository},head_sha:sha,head_branch:'dev',event:'workflow_dispatch',path:'.github/workflows/release-receipt.yml'};
+  assert.throws(()=>emitter(r,{...env,GITHUB_WORKFLOW_SHA:before},t,sha));
+  assert.throws(()=>emitter(r,{...env,GITHUB_WORKFLOW_REF:'other/workflow@refs/heads/dev'},t,sha));
   emitter(r,env,t,sha);assert.throws(()=>emitter({...r,run_attempt:2},env,t,sha));assert.throws(()=>emitter(r,{...env,GITHUB_REF:'refs/heads/main'},t,sha));
 });
