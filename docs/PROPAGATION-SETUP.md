@@ -1,11 +1,30 @@
 # MATLAB propagation preparation
 
+## Current source declarations
+
+The committed [MATLAB CI config](../.github/matlab-ci.json) declares
+`baseline_ready: true` and `candidate_preflight_ready: true`; the
+[pipeline contract](../automation/pipeline-contract.json) declares `enabled: true`
+and `auto_merge: false`. Promotion also requires the effective
+`WSS_MATLAB_PROPAGATION_ENABLED` gate. These source declarations do not establish
+live variables, App access, rulesets, or acceptance of a candidate. Current native
+validation uses exact product test inventories and profile-specific canonical
+suites, including paired modern stages. Declared Mac BLE payloads require native
+packaged ABI proof on both Intel and ARM. See [native CI](../ci/README.md).
+
+## Historical preparation record
+
+The preparation notes below retain the original disabled-state rollout sequence,
+initial fixture assumptions and frozen producer tuple. They are historical
+context, not current readiness flags, workflow requirements or acceptance proof.
+Use the current source declarations and native CI contract above for today's checks.
+
 Status: receiver source prepared; **disabled**. `.github/matlab-ci.json` has `baseline_ready: false`, the existing pipeline contract has `enabled: false`, and promotion jobs additionally require repository variable `WSS_MATLAB_PROPAGATION_ENABLED` equal to `true`. This change does not set that variable, change rulesets/App access, or dispatch Core candidates.
 
 ## Trust and review sequence
 
 1. Promote working native CI from dev to main through the two review PRs; preserve dev work. Configure main/dev rulesets using the four existing check names per repository after verifying green results.
-2. Verify existing App installation and availability of `WSS_GITHUB_APP_ID` / `WSS_GITHUB_APP_PRIVATE_KEY` without creating or expanding credentials. Current metadata reads did not establish availability; organization-level reads were denied, which does not prove absence.
+2. Verify existing App installation and availability of `WSS_GITHUB_APP_ID` / `WSS_GITHUB_APP_PRIVATE_KEY` without creating or expanding credentials.
 3. Review and merge the disabled receiver setup, then validate the first exact **canonical Core dev push** artifact only after activation is explicitly approved. Ordinary PR artifacts and this setup PR's green CI are not producer proof.
 4. Core's dispatcher must separately add the MATLAB wrapper receiver after its producer completes all required jobs. It passes the exact repository, commit, run ID, artifact ID, archive, and SHA256 tuple. No Core edit is included here.
 5. The wrapper resolves that exact successful producer and verifies archive checksum, exact ZIP paths, complete universal inventory, per-file hashes, both current source SHAs, native suite digest, native MATLAB behavior and all platform preflights. Only after successful source-bound evidence does it mint a target-only write token and create a **dependency-only dev PR**. No auto-merge.

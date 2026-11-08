@@ -1,10 +1,14 @@
-# Future Core and application propagation
+# Core and application propagation
 
-Core propagation remains inactive. Ordinary PR CI is separate and documented in
-`ci/README.md`; there are no Core promotion or dispatch handlers.
-`automation/pipeline-contract.json`
-records the intended ownership boundary; adding GitHub App access alone must not
-activate it.
+Ordinary PR CI is separate and documented in [native CI](../ci/README.md).
+The committed [promotion](../.github/workflows/promote-wss.yml) and
+[CLI dispatch](../.github/workflows/dispatch-cli-promotion.yml) workflows implement
+the receiver handlers. The [pipeline contract](../automation/pipeline-contract.json)
+declares readiness, while effective enable gates, existing App access and
+source-bound candidate proof remain separate requirements. Adding App access or
+reading a static declaration alone does not establish activation or acceptance.
+See [propagation setup](PROPAGATION-SETUP.md) for current declarations and the
+historical preparation record.
 
 1. Core publishes an immutable artifact with source revision, manifest and hashes.
 2. The wrapper verifies that artifact, updates its owned `Cs_Libraries/` payload,
