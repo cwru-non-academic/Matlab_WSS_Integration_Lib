@@ -1,5 +1,6 @@
 . "$PSScriptRoot/MatlabContract.ps1"
 . "$PSScriptRoot/wss-ci/Preflight.ps1"
+. "$PSScriptRoot/wss-ci/Evidence.ps1"
 . "$PSScriptRoot/MatlabMacCoverage.ps1"
 
 function Wait-MatlabRun([string]$Repository,[string]$RunId,[string]$Sha,[string]$Workflow,[string]$Event,[int]$TimeoutSeconds=2400) {
@@ -75,31 +76,45 @@ function Read-MatlabApprovalMarker([string]$Body,[string]$Destination) {
     $approval
 }
 
-function Assert-MatlabApproval($Approval,[string]$EvidenceRoot,$Config) {
+function Assert-MatlabApproval($Approval,[string]$EvidenceRoot,$Config,[System.Collections.Generic.List[object]]$ReceiptSnapshots) {
     Assert-MatlabProducer $Approval.candidate
     foreach ($role in @(Get-MatlabApprovalRoles $Approval)) {
         $repo=if ($role -ceq 'wrapper') { $MatlabWrapperRepository } else { (Get-MatlabApplication $role).repository }
-        $e=Get-MatlabEvidence $repo $Approval.$role.preflight_run_id $Approval.$role.source_sha $role $Approval.candidate (Join-Path $EvidenceRoot $role) $Config
+        $snapshot=$null
+        $receiptArguments=@{}
+        if ($null -ne $ReceiptSnapshots) { $receiptArguments.ReceiptSnapshot=[ref]$snapshot }
+        $e=Get-MatlabEvidence $repo $Approval.$role.preflight_run_id $Approval.$role.source_sha $role $Approval.candidate (Join-Path $EvidenceRoot $role) $Config @receiptArguments
         $pairRole='cli'
         $sourceField=(Get-MatlabApplication $pairRole).source_field
         if ($e.wrapper_sha -cne $Approval.wrapper.source_sha -or $e.$sourceField -cne $Approval.$pairRole.source_sha -or
             $e.projection_sha256 -cne $Approval.projection_sha256 -or $e.fixture_sha -cne $Approval.fixture.commit -or
             $e.fixture_sha256 -cne $Approval.fixture.sha256) { throw 'Preflights did not test the approved source/candidate tuple.' }
+        if ($null -ne $ReceiptSnapshots) {
+            if ($null -eq $snapshot) { throw 'Native receipt proof snapshot missing.' }
+            $ReceiptSnapshots.Add($snapshot)
+        }
     }
 }
 
-function Assert-MatlabMergedApplicationPreflight($Approval,[ValidateSet('cli')][string]$Role,[string]$WrapperSha,[string]$ApplicationSha,[string]$RunId,[string]$Root,$Config) {
+function Assert-MatlabMergedApplicationPreflight($Approval,[ValidateSet('cli')][string]$Role,[string]$WrapperSha,[string]$ApplicationSha,[string]$RunId,[string]$Root,$Config,[System.Collections.Generic.List[object]]$ReceiptSnapshots) {
     Assert-MatlabSha $WrapperSha
     Assert-MatlabSha $ApplicationSha
     if ($RunId -cnotmatch '^[1-9][0-9]*$') { throw 'Exact merged-wrapper application preflight ID required.' }
     $application=Get-MatlabApplication $Role
-    $e=Get-MatlabEvidence $application.repository $RunId $ApplicationSha $Role $Approval.candidate $Root $Config
+    $snapshot=$null
+    $receiptArguments=@{}
+    if ($null -ne $ReceiptSnapshots) { $receiptArguments.ReceiptSnapshot=[ref]$snapshot }
+    $e=Get-MatlabEvidence $application.repository $RunId $ApplicationSha $Role $Approval.candidate $Root $Config @receiptArguments
     if ($e.wrapper_sha -cne $WrapperSha -or $e.($application.source_field) -cne $ApplicationSha -or $e.projection_sha256 -cne $Approval.projection_sha256 -or
         $e.fixture_sha -cne $Approval.fixture.commit -or $e.fixture_sha256 -cne $Approval.fixture.sha256) { throw 'Application preflight did not test the exact accepted merged wrapper and current application source.' }
+        if ($null -ne $ReceiptSnapshots) {
+            if ($null -eq $snapshot) { throw 'Native receipt proof snapshot missing.' }
+            $ReceiptSnapshots.Add($snapshot)
+        }
 }
 
-function Assert-MatlabMergedCliPreflight($Approval,[string]$WrapperSha,[string]$CliSha,[string]$RunId,[string]$Root,$Config) {
-    Assert-MatlabMergedApplicationPreflight $Approval 'cli' $WrapperSha $CliSha $RunId $Root $Config
+function Assert-MatlabMergedCliPreflight($Approval,[string]$WrapperSha,[string]$CliSha,[string]$RunId,[string]$Root,$Config,[System.Collections.Generic.List[object]]$ReceiptSnapshots) {
+    Assert-MatlabMergedApplicationPreflight $Approval 'cli' $WrapperSha $CliSha $RunId $Root $Config -ReceiptSnapshots $ReceiptSnapshots
 }
 
 function Get-MatlabApplicationPreflightMarker([ValidateSet('cli')][string]$Role,[string]$WrapperSha,[string]$ApplicationSha,[string]$RunId) {
@@ -264,19 +279,34 @@ function New-MatlabFanoutApproval($Candidate,[string]$WrapperSha,[string]$CliSha
         cli=@{source_sha=$CliSha;preflight_run_id=[string]$runs.cli.id}
         fixture=@{commit=$Config.fixture_commit;sha256=$Config.fixture_sha256}}
 }
-function Get-MatlabEvidence([string]$Repository,[string]$RunId,[string]$SourceSha,[string]$Role,$Candidate,[string]$Root,$Config) {
+function Get-MatlabEvidence([string]$Repository,[string]$RunId,[string]$SourceSha,[string]$Role,$Candidate,[string]$Root,$Config,[ref]$ReceiptSnapshot) {
+    # Never expose a stale descriptor when validation fails before capture.
+    if ($null -ne $ReceiptSnapshot) { $ReceiptSnapshot.Value=$null }
     $expectedRepository=if ($Role -ceq 'wrapper') { $MatlabWrapperRepository } else { (Get-MatlabApplication $Role).repository }
     if ($Repository -cne $expectedRepository) { throw 'Role/repository evidence mismatch.' }
     $run=Wait-MatlabRun $Repository $RunId $SourceSha 'wss-preflight.yml' 'workflow_dispatch'
+    $receiptProof=$null
+    if ($null -ne $ReceiptSnapshot) {
+        $receiptProof=Start-WssCiPreflightProof -Repository $Repository -RunId $RunId -SourceSha $SourceSha -Root "$Root-proof" -ExpectedAttempt $run.run_attempt
+        $run=$receiptProof.Run
+    }
     if ($run.head_branch -cne (Get-WssCiChannel)) { throw 'Preflight must execute trusted dev source.' }
-    $pages=Invoke-MatlabGh -Arguments @('api','--paginate','--slurp',"repos/$Repository/actions/runs/$RunId/attempts/$($run.run_attempt)/jobs?per_page=100") | ConvertFrom-Json
+    if ($null -ne $receiptProof) { $pages=@([pscustomobject]@{jobs=$receiptProof.Jobs}) }
+    else {
+        $pages=Invoke-MatlabGh -Arguments @('api','--paginate','--slurp',"repos/$Repository/actions/runs/$RunId/attempts/$($run.run_attempt)/jobs?per_page=100") | ConvertFrom-Json
+    }
     $prefix=if ($Role -ceq 'wrapper') { 'Preflight' } else { 'CLI preflight' }
     foreach ($name in @("$prefix behavioral tests","$prefix compatibility (Windows)","$prefix compatibility (Ubuntu)","$prefix compatibility (macOS)")) {
         $required=@($pages | ForEach-Object { $_.jobs } | Where-Object { $_.name -ceq $name })
         if ($required.Count -ne 1 -or $required[0].conclusion -cne 'success') { throw "Missing/skipped/failed native preflight job: $name" }
     }
     if (Test-Path -LiteralPath $Root) { throw 'Evidence destination must be new.' }
-    $null=Invoke-MatlabGh -Arguments @('run','download',$RunId,'--repo',$Repository,'--name','matlab-preflight-evidence','--dir',$Root)
+    if ($null -ne $receiptProof) {
+        $null=Read-WssCiPreflightArtifact -Proof $receiptProof -Name 'matlab-preflight-evidence' -Destination $Root
+    } else {
+        $null=Invoke-MatlabGh -Arguments @('run','download',$RunId,'--repo',$Repository,'--name','matlab-preflight-evidence','--dir',$Root)
+
+    }
     $actual=@(Get-ChildItem -LiteralPath $Root -Recurse -File | ForEach-Object { [IO.Path]::GetRelativePath($Root,$_.FullName).Replace('\','/') })
     if (@(Compare-Object @('evidence.json','summary.json','projection.json') $actual -CaseSensitive).Count) { throw 'Incomplete/extra native evidence files.' }
     $e=Get-Content (Join-Path $Root 'evidence.json') -Raw | ConvertFrom-Json
@@ -296,17 +326,28 @@ function Get-MatlabEvidence([string]$Repository,[string]$RunId,[string]$SourceSh
         $projection.files.Count -ne $MatlabProjectionFiles.Count -or @(Compare-Object $MatlabProjectionFiles @($projection.files.source) -CaseSensitive).Count -or
         (Get-MatlabProjectionDigest $projection.files) -cne $e.projection_sha256 -or $projection.projection_sha256 -cne $e.projection_sha256) { throw 'Projection/evidence mismatch.' }
     $normalizedRoot=Join-Path $Root 'normalized'
-    $null=Invoke-MatlabGh -Arguments @('run','download',$RunId,'--repo',$Repository,'--name','wss-candidate-provenance','--dir',$normalizedRoot)
+    if ($null -ne $receiptProof) {
+        $null=Read-WssCiPreflightArtifact -Proof $receiptProof -Name 'wss-candidate-provenance' -Destination $normalizedRoot
+    } else {
+        $null=Invoke-MatlabGh -Arguments @('run','download',$RunId,'--repo',$Repository,'--name','wss-candidate-provenance','--dir',$normalizedRoot)
+
+    }
     $normalizedFiles=@(Get-ChildItem -LiteralPath $normalizedRoot -Force)
     if ($normalizedFiles.Count -ne 1 -or $normalizedFiles[0].PSIsContainer -or $normalizedFiles[0].Name -cne 'candidate.json') { throw 'Normalized evidence must contain exactly candidate.json.' }
     $normalized=Get-Content (Join-Path $normalizedRoot 'candidate.json') -Raw | ConvertFrom-Json
     Assert-MatlabSameCandidate $normalized $Candidate
     if (@($normalized.PSObject.Properties).Count -ne 6) { throw 'Normalized candidate must contain only the six producer fields.' }
     $macRoot=Join-Path $Root 'packaged-macos'
-    $null=Invoke-MatlabGh -Arguments @('run','download',$RunId,'--repo',$Repository,'--name','matlab-preflight-compatibility-macOS','--dir',$macRoot)
+    if ($null -ne $receiptProof) {
+        $null=Read-WssCiPreflightArtifact -Proof $receiptProof -Name 'matlab-preflight-compatibility-macOS' -Destination $macRoot
+    } else {
+        $null=Invoke-MatlabGh -Arguments @('run','download',$RunId,'--repo',$Repository,'--name','matlab-preflight-compatibility-macOS','--dir',$macRoot)
+
+    }
     $macFiles=@(Get-ChildItem -LiteralPath $macRoot -Force)
     if ($macFiles.Count -ne 1 -or $macFiles[0].PSIsContainer -or $macFiles[0].Name -cne 'compatibility.json') { throw 'Packaged macOS proof is incomplete.' }
     $mac=Get-Content (Join-Path $macRoot 'compatibility.json') -Raw | ConvertFrom-Json
     Assert-MatlabMacCoverage $mac -Repository $Repository -RunId $RunId -Attempt ([string]$run.run_attempt) -SourceSha $SourceSha
+    if ($null -ne $ReceiptSnapshot) { $ReceiptSnapshot.Value=Complete-WssCiPreflightProof -Proof $receiptProof }
     $e
 }
