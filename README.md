@@ -153,10 +153,13 @@ not MATLAB Engine or a replacement implementation.
 
 Downloaded candidates require the exact 27-file universal inventory, including
 the macOS backend and native bridge. Only the explicitly identified historical
-reference copy may retain 25 files. Native evidence requires eight wrapper tests,
-nine CLI tests and all ten canonical cases; normalized candidate metadata is
-additional evidence and cannot replace the richer proof. Mac acceptance requires
-actual packaged ABI loading, not an unsupported legacy result or a surrogate.
+reference copy may retain 25 files. Native evidence requires the exact discovered
+and completed test IDs from each product's `ci/native-test-contract.json`, all
+passing without skips, plus the canonical suites required by the verified payload
+profile. Modern conformance requires both single-device and multi-device stages.
+Normalized candidate metadata is additional evidence and cannot replace this
+proof. Mac acceptance requires actual packaged ABI loading, not an unsupported
+legacy result or a surrogate.
 
 The prepared read-only acceptance workflow verifies a frozen Core plan, actual
 human dependency merge, fresh committed-state normal CI, paired native proofs
@@ -282,7 +285,7 @@ prevent mutable or substituted evidence; they are not credentials.
 
 ## Coordinated reload (modern Core required)
 
-The modern wrapper follows the C# integration controller's reload behavior using Core's `WssConfigurationSnapshot` API. This source requires a compatible modern Core payload (including 2251ccb); it must not be copied onto a historical payload merely because its ordinary compatibility tests pass. Legacy main and CLI product adoption remain separate.
+The modern wrapper follows the C# integration controller's reload behavior using Core's `WssConfigurationSnapshot` API. This source requires a compatible modern Core payload (including 2251ccb); it must not be copied onto a historical payload merely because its ordinary compatibility tests pass. Both wrapper branches and the CLI have adopted compatible modern source/payload pairs. Each application's recorded wrapper gitlink remains authoritative; historical payloads still require their matching supported source.
 
 `LoadParamsJson()` reloads all three JSON files from anchored startup defaults. A directory overload selects all three standard filenames there. An explicit calibration file selects that file plus startup-default Core and model files, not its siblings. Core validates and compares snapshots. If effective Core is unchanged, the stack stays active and model history is preserved. A Core change retires the managed tick host and constructs a new stack from the validated values without rereading those files.
 
@@ -292,4 +295,4 @@ Validation failure leaves the active stack unchanged. A failed reload retains it
 
 Ownership is retained before host construction, including when that constructor throws. Successful cleanup stages are not repeated, and retired hosts detach Core log subscriptions and stop ticking. Core's `BuildAndInitialize` can suppress cleanup errors for a partial stack it does not return; the wrapper retains the candidate transport but cannot recover that inaccessible stack or report errors Core swallowed. No universal partial-owner recovery is claimed.
 
-`UpdateChannelParams` writes `stim.ch.N.defaultPA`, the amplitude consumed by normalized stimulation. Tests use emulator output, actual setup requests and isolated failure probes, never physical stimulation. The pinned CLI applications do not gain this behavior or the amplitude correction until their separate supported wrapper adoption.
+`UpdateChannelParams` writes `stim.ch.N.defaultPA`, the amplitude consumed by normalized stimulation. Tests use emulator output, actual setup requests and isolated failure probes, never physical stimulation. CLI behavior and the amplitude correction depend on the application's actual recorded wrapper revision and its compatible payload; a sibling checkout or tooling update cannot substitute for that product pin.
