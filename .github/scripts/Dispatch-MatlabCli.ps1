@@ -5,25 +5,37 @@ if ($env:GITHUB_ACTIONS -cne 'true' -or $env:GITHUB_REPOSITORY -cne $MatlabWrapp
 $application=Get-MatlabApplication $Role
 $barrier=$null
 if ($env:GITHUB_EVENT_NAME -ceq 'workflow_dispatch') {
+    try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role $Role -Operation 'verify-barrier' -Status 'started' -ErrorCode 'none' } catch { } # wss-diag
     $barrier=Get-MatlabIntegrationBarrier $CoreRoot $ProducerRunId $BarrierRunId $BarrierAttempt
+    try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role $Role -Operation 'verify-barrier' -Status 'completed' -ErrorCode 'none' } catch { } # wss-diag
     $pr=Invoke-MatlabGh -Arguments @('api',"repos/$MatlabWrapperRepository/pulls/$($barrier.integrations.matlab.pr_number)") | ConvertFrom-Json
     if ($pr.merge_commit_sha -cne $barrier.integrations.matlab.head_sha) { throw 'Wrapper merge differs from the verified barrier.' }
 } elseif ($env:GITHUB_EVENT_NAME -ceq 'pull_request_target') {
     $event=Get-Content -LiteralPath $EventPath -Raw | ConvertFrom-Json
     $pr=$event.pull_request
 } else { throw 'Only a reviewed merge event or trusted main barrier resume is supported.' }
+try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role $Role -Operation 'validate-human-merge' -Status 'started' -ErrorCode 'none' } catch { } # wss-diag
 Assert-MatlabHumanMerge $pr
+try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role $Role -Operation 'validate-human-merge' -Status 'completed' -ErrorCode 'none' } catch { } # wss-diag
 if (!$pr.merged -or $pr.base.ref -cne (Get-WssCiChannel) -or $pr.head.repo.full_name -cne $MatlabWrapperRepository -or $pr.user.type -cne 'Bot' -or $pr.head.ref -cnotlike 'automation/matlab-wss-*') { throw 'Not a reviewed Matlab dependency promotion.' }
 if (Test-Path -LiteralPath $WorkRoot) { throw 'Dispatcher workspace must be new.' }
 New-Item -ItemType Directory -Path $WorkRoot | Out-Null
+try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role $Role -Operation 'validate-approval' -Status 'started' -ErrorCode 'none' } catch { } # wss-diag
 $approval=Read-MatlabApprovalMarker $pr.body (Join-Path $WorkRoot 'approval.json')
+try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role $Role -Operation 'validate-approval' -Status 'completed' -ErrorCode 'none' } catch { } # wss-diag
 if ($pr.head.ref -cne "automation/matlab-wss-$($approval.candidate.run_id)-$($approval.candidate.sha256)") { throw 'Promotion branch/candidate mismatch.' }
 $config=Read-MatlabConfig "$PSScriptRoot/../matlab-ci.json"
 if (!$config.baseline_ready -or $config.automated_execution -cne 'matlab-native') { throw 'Approved .NET promotion baseline required.' }
 if ($barrier) { Assert-MatlabSameCandidate $barrier.candidate $approval.candidate }
+try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role $Role -Operation 'validate-family-evidence' -Status 'started' -ErrorCode 'none' } catch { } # wss-diag
 Assert-MatlabApproval $approval (Join-Path $WorkRoot 'evidence') $config
+try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role $Role -Operation 'validate-family-evidence' -Status 'completed' -ErrorCode 'none' } catch { } # wss-diag
+try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role $Role -Operation 'validate-reviewed-merge' -Status 'started' -ErrorCode 'none' } catch { } # wss-diag
 Assert-MatlabMergedWrapper $pr.merge_commit_sha ([string]$pr.number) $approval
+try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role $Role -Operation 'validate-reviewed-merge' -Status 'completed' -ErrorCode 'none' } catch { } # wss-diag
+try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role $Role -Operation 'validate-staging-policy' -Status 'started' -ErrorCode 'none' } catch { } # wss-diag
 $staged=Test-MatlabStagedProducer $approval.candidate
+try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role $Role -Operation 'validate-staging-policy' -Status 'completed' -ErrorCode 'none' } catch { } # wss-diag
 if ($staged -and !$barrier) {
     'dispatch_needed=false' >> $env:GITHUB_OUTPUT
     Write-Output 'Staged producer: wait for the Core all-integration barrier; no application write token is needed.'
@@ -31,18 +43,24 @@ if ($staged -and !$barrier) {
 }
 if (!$staged -and $barrier) { throw 'Barrier resume cannot substitute for a legacy producer merge event.' }
 $body=@{ref=(Get-WssCiChannel);inputs=@{wrapper_sha=$pr.merge_commit_sha;wrapper_pr=[string]$pr.number;approval_json=($approval | ConvertTo-Json -Depth 8 -Compress)}} | ConvertTo-Json -Depth 6 -Compress
+try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role $Role -Operation 'inspect-reuse' -Status 'started' -ErrorCode 'none' } catch { } # wss-diag
 $pages=Invoke-MatlabGh -Arguments @('api','--paginate','--slurp',"repos/$($application.repository)/actions/workflows/promote-integration.yml/runs?event=workflow_dispatch&per_page=100") | ConvertFrom-Json
 $existing=@($pages | ForEach-Object { $_.workflow_runs } | Where-Object { $_.display_title -ceq "Promote Integration $($pr.merge_commit_sha) / wss-$($approval.candidate.run_id)-$($approval.candidate.artifact_id)" })
 . "$PSScriptRoot/wss-ci/DispatchProof.ps1"
 $run=if($existing.Count -eq 1 -and [string]$existing[0].id -cmatch '^[1-9][0-9]*$'){Invoke-MatlabGh -Arguments @('api',"repos/$($application.repository)/actions/runs/$($existing[0].id)")|ConvertFrom-Json}else{$null}
 $reuse=Invoke-WssCiDispatchProof @{operation='reuse';runs=$existing;run=$run;expected=@{repository=$application.repository;source_sha=$approval.$Role.source_sha;title="Promote Integration $($pr.merge_commit_sha) / wss-$($approval.candidate.run_id)-$($approval.candidate.artifact_id)"}}
+try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role $Role -Operation 'inspect-reuse' -Status 'completed' -ErrorCode 'none' } catch { } # wss-diag
 if($reuse){'dispatch_needed=false' >> $env:GITHUB_OUTPUT; exit 0}
 $intentName="matlab-$Role-dispatch-$($pr.merge_commit_sha)"
+try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role $Role -Operation 'validate-intent' -Status 'started' -ErrorCode 'none' } catch { } # wss-diag
 Assert-WssCiDispatchArtifacts $env:GITHUB_REPOSITORY $intentName
+try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role $Role -Operation 'validate-intent' -Status 'completed' -ErrorCode 'none' } catch { } # wss-diag
+try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role $Role -Operation 'write-intent' -Status 'started' -ErrorCode 'none' } catch { } # wss-diag
 $sources=@{};$sources[$env:GITHUB_REPOSITORY]=$pr.merge_commit_sha;$sources[$application.repository]=$approval.$Role.source_sha
 @{owner=$env:GITHUB_REPOSITORY;repository=$application.repository;name=$intentName;sources=$sources}|ConvertTo-Json -Depth 8|Set-Content (Join-Path $WorkRoot 'dispatch-sources.json')
 "intent_name=$intentName" >> $env:GITHUB_OUTPUT
 [IO.File]::WriteAllText((Join-Path $WorkRoot ($Role+'-dispatch.json')),$body)
 'dispatch_needed=true' >> $env:GITHUB_OUTPUT
+try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role $Role -Operation 'write-intent' -Status 'completed' -ErrorCode 'none' } catch { } # wss-diag
 if ($ValidateOnly) { exit 0 }
 throw 'Dispatch must pass the shared durable-intent workflow gate; use ValidateOnly and the common sender.'

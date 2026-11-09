@@ -40,8 +40,27 @@ jobs:
       - name: Require approved native baseline
         shell: pwsh
         run: |
-          $config=Get-Content .github/matlab-ci.json -Raw | ConvertFrom-Json
-          if (!$config.baseline_ready) { throw 'Candidate promotion activation remains pending.' }
+          # WSS diagnostic envelope v1: observational only; absent completion means unknown.
+          $wssDiagnosticExit = Get-Variable LASTEXITCODE -ValueOnly -ErrorAction SilentlyContinue
+          try { . ./.github/scripts/wss-ci/PhaseDiagnostics.ps1 } catch { }
+          try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role 'cli' -Operation 'validate-baseline' -Status 'started' -Boundary -ErrorCode 'none' } catch { }
+          if ($null -ne $wssDiagnosticExit) { $global:LASTEXITCODE = $wssDiagnosticExit }
+          try {
+              $config=Get-Content .github/matlab-ci.json -Raw | ConvertFrom-Json
+              if (!$config.baseline_ready) { throw 'Candidate promotion activation remains pending.' }
+          } catch {
+              $wssDiagnosticExit = Get-Variable LASTEXITCODE -ValueOnly -ErrorAction SilentlyContinue
+              try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role 'cli' -Operation 'validate-baseline' -Status 'failed' -Boundary -ErrorCode 'terminating-error' } catch { }
+              if ($null -ne $wssDiagnosticExit) { $global:LASTEXITCODE = $wssDiagnosticExit }
+              throw
+          }
+          $wssDiagnosticExit = Get-Variable LASTEXITCODE -ValueOnly -ErrorAction SilentlyContinue
+          if ($null -ne $wssDiagnosticExit -and $wssDiagnosticExit -ne 0) {
+              try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role 'cli' -Operation 'validate-baseline' -Status 'failed' -Boundary -ErrorCode 'native-nonzero' } catch { }
+          } else {
+              try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role 'cli' -Operation 'validate-baseline' -Status 'completed' -Boundary -ErrorCode 'none' } catch { }
+          }
+          if ($null -ne $wssDiagnosticExit) { $global:LASTEXITCODE = $wssDiagnosticExit }
       - uses: actions/create-github-app-token@v2
         id: read
         with:
@@ -84,7 +103,27 @@ jobs:
           PRODUCER_RUN_ID: ${{ inputs.producer_run_id }}
           BARRIER_RUN_ID: ${{ inputs.barrier_run_id }}
           BARRIER_ATTEMPT: ${{ inputs.barrier_attempt }}
-        run: ./.github/scripts/Dispatch-MatlabCli.ps1 -EventPath $env:GITHUB_EVENT_PATH -WorkRoot "$env:RUNNER_TEMP/matlab-dispatch" -ProducerRunId $env:PRODUCER_RUN_ID -BarrierRunId $env:BARRIER_RUN_ID -BarrierAttempt $env:BARRIER_ATTEMPT -CoreRoot "$env:GITHUB_WORKSPACE/core-stage" -ValidateOnly
+        run: |
+          # WSS diagnostic envelope v1: observational only; absent completion means unknown.
+          $wssDiagnosticExit = Get-Variable LASTEXITCODE -ValueOnly -ErrorAction SilentlyContinue
+          try { . ./.github/scripts/wss-ci/PhaseDiagnostics.ps1 } catch { }
+          try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role 'cli' -Operation 'validate-family' -Status 'started' -Boundary -ErrorCode 'none' } catch { }
+          if ($null -ne $wssDiagnosticExit) { $global:LASTEXITCODE = $wssDiagnosticExit }
+          try {
+              ./.github/scripts/Dispatch-MatlabCli.ps1 -EventPath $env:GITHUB_EVENT_PATH -WorkRoot "$env:RUNNER_TEMP/matlab-dispatch" -ProducerRunId $env:PRODUCER_RUN_ID -BarrierRunId $env:BARRIER_RUN_ID -BarrierAttempt $env:BARRIER_ATTEMPT -CoreRoot "$env:GITHUB_WORKSPACE/core-stage" -ValidateOnly
+          } catch {
+              $wssDiagnosticExit = Get-Variable LASTEXITCODE -ValueOnly -ErrorAction SilentlyContinue
+              try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role 'cli' -Operation 'validate-family' -Status 'failed' -Boundary -ErrorCode 'terminating-error' } catch { }
+              if ($null -ne $wssDiagnosticExit) { $global:LASTEXITCODE = $wssDiagnosticExit }
+              throw
+          }
+          $wssDiagnosticExit = Get-Variable LASTEXITCODE -ValueOnly -ErrorAction SilentlyContinue
+          if ($null -ne $wssDiagnosticExit -and $wssDiagnosticExit -ne 0) {
+              try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role 'cli' -Operation 'validate-family' -Status 'failed' -Boundary -ErrorCode 'native-nonzero' } catch { }
+          } else {
+              try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role 'cli' -Operation 'validate-family' -Status 'completed' -Boundary -ErrorCode 'none' } catch { }
+          }
+          if ($null -ne $wssDiagnosticExit) { $global:LASTEXITCODE = $wssDiagnosticExit }
       - name: Retain dispatch intent before write credentials
         if: steps.validate.outputs.dispatch_needed == 'true'
         uses: actions/upload-artifact@v4
@@ -101,8 +140,27 @@ jobs:
           BARRIER_RUN_ID: ${{ inputs.barrier_run_id }}
           BARRIER_ATTEMPT: ${{ inputs.barrier_attempt }}
         run: |
-          . ./.github/scripts/MatlabDevStage.ps1
-          $null = Get-MatlabIntegrationBarrier "$env:GITHUB_WORKSPACE/core-stage" $env:PRODUCER_RUN_ID $env:BARRIER_RUN_ID $env:BARRIER_ATTEMPT
+          # WSS diagnostic envelope v1: observational only; absent completion means unknown.
+          $wssDiagnosticExit = Get-Variable LASTEXITCODE -ValueOnly -ErrorAction SilentlyContinue
+          try { . ./.github/scripts/wss-ci/PhaseDiagnostics.ps1 } catch { }
+          try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role 'cli' -Operation 'recheck-barrier' -Status 'started' -Boundary -ErrorCode 'none' } catch { }
+          if ($null -ne $wssDiagnosticExit) { $global:LASTEXITCODE = $wssDiagnosticExit }
+          try {
+              . ./.github/scripts/MatlabDevStage.ps1
+              $null = Get-MatlabIntegrationBarrier "$env:GITHUB_WORKSPACE/core-stage" $env:PRODUCER_RUN_ID $env:BARRIER_RUN_ID $env:BARRIER_ATTEMPT
+          } catch {
+              $wssDiagnosticExit = Get-Variable LASTEXITCODE -ValueOnly -ErrorAction SilentlyContinue
+              try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role 'cli' -Operation 'recheck-barrier' -Status 'failed' -Boundary -ErrorCode 'terminating-error' } catch { }
+              if ($null -ne $wssDiagnosticExit) { $global:LASTEXITCODE = $wssDiagnosticExit }
+              throw
+          }
+          $wssDiagnosticExit = Get-Variable LASTEXITCODE -ValueOnly -ErrorAction SilentlyContinue
+          if ($null -ne $wssDiagnosticExit -and $wssDiagnosticExit -ne 0) {
+              try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role 'cli' -Operation 'recheck-barrier' -Status 'failed' -Boundary -ErrorCode 'native-nonzero' } catch { }
+          } else {
+              try { Write-WssCiPhaseDiagnostic -Family 'matlab' -Role 'cli' -Operation 'recheck-barrier' -Status 'completed' -Boundary -ErrorCode 'none' } catch { }
+          }
+          if ($null -ne $wssDiagnosticExit) { $global:LASTEXITCODE = $wssDiagnosticExit }
       - uses: actions/create-github-app-token@v2
         if: steps.validate.outputs.dispatch_needed == 'true'
         id: dispatch
