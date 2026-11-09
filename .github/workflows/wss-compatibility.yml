@@ -33,22 +33,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          repository: cwru-non-academic/WSSCore
-          ref: 7712e609f44ffc3425df3c067be8e2e080506f59
-          path: .receipt-contract
-          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Verify immutable shared release contract
+      - name: Verify local copied receipt contract
         shell: pwsh
-        env:
-          RECEIPT_CORE_ROOT: ${{ github.workspace }}/.receipt-contract
         run: |
           node --test .github/scripts/tests/ReviewedCoreContract.test.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Reviewed Core contract differs from MATLAB receivers.' }
+          if ($LASTEXITCODE -ne 0) { throw 'Local copied receipt contract checks failed.' }
       - name: Verify MATLAB promotion rejection guards
         shell: pwsh
         run: |
