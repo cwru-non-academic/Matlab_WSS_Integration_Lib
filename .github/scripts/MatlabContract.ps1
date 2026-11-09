@@ -58,7 +58,10 @@ function Assert-MatlabProjection([string]$Root, $Record) {
             $Record.reference_source.commit -cne '79322a82d285cc526c77ea660beb2993cb04f5d9') { throw 'Only the exact recorded historical reference-copy bootstrap is accepted.' }
         $expected=$MatlabBootstrapProjectionFiles
     } else { Assert-MatlabCandidate $Record.candidate }
-    $actual = @(Get-ChildItem -LiteralPath $Root -Recurse -File | Where-Object { $_.FullName -cne (Join-Path $Root 'payload-source.json') } | ForEach-Object { [IO.Path]::GetRelativePath($Root,$_.FullName).Replace('\','/') })
+    # Use the filesystem's expanded root for both enumeration and relative names.
+    # Resolve-Path alone preserves Windows 8.3 aliases while child FullName does not.
+    $Root = (Get-Item -LiteralPath $Root).FullName
+    $actual = @(Get-ChildItem -LiteralPath $Root -Recurse -File | ForEach-Object { [IO.Path]::GetRelativePath($Root,$_.FullName).Replace('\','/') } | Where-Object { $_ -cne 'payload-source.json' })
     if (@(Compare-Object $expected $actual -CaseSensitive).Count -ne 0 -or $Record.files.Count -ne $expected.Count -or
         @(Compare-Object $expected @($Record.files.source) -CaseSensitive).Count -ne 0) { throw 'Exact full universal inventory required; no fallback/extra files.' }
     foreach ($item in $Record.files) {
