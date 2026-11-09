@@ -1,4 +1,4 @@
-# Actual-package copy fixtures only; these do not claim native Mac execution.
+# Actual-package copy and separate synthetic inventory fixtures; no native Mac execution.
 param([string]$ActualWrapperRoot)
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/../MatlabContract.ps1"
@@ -79,6 +79,57 @@ try {
     $global:MatlabDiagnosticTestCopyMutation=$null
     Assert-MatlabProjection (Join-Path $fixture 'Cs_Libraries') (Get-Content $manifest -Raw | ConvertFrom-Json)
     Write-Output 'Actual payload staging, source binding, mutation rejection and copy isolation passed; native Mac gates remain required.'
+    # Separate synthetic inventory fixtures: never staged as actual-package evidence.
+    $directory=Join-Path $temporary 'synthetic projection alias fixture'
+    $null=New-Item -ItemType Directory -Path $directory
+    foreach ($file in $MatlabProjectionFiles) {
+        $target=Join-Path $directory $file
+        $null=New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target)
+        [IO.File]::WriteAllText($target,'synthetic contract fixture: '+$file)
+    }
+    $candidate=[pscustomobject]@{repository='cwru-non-academic/WSSCore';commit=('a'*40);run_id='123';artifact_id='456';archive='WSS-Universal-ci.zip';sha256=('b'*64)}
+    $files=@($MatlabProjectionFiles | ForEach-Object { @{source=$_;sha256=(Get-FileHash (Join-Path $directory $_)).Hash.ToLowerInvariant()} })
+    $record=[pscustomobject]@{schema='wss-matlab-projection/v1';bootstrap_reference=$false;candidate=$candidate;files=$files;projection_sha256=(Get-MatlabProjectionDigest $files)}
+    # Exercise the existing verifier, with staging and installed-sidecar inventories.
+    $roots=@($directory,(Join-Path $directory '.'))
+    if ($IsWindows) {
+        $fileSystem=New-Object -ComObject Scripting.FileSystemObject
+        try { $shortRoot=$fileSystem.GetFolder($directory).ShortPath }
+        finally { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($fileSystem) }
+        if ($shortRoot -cne $directory) { $roots+=@($shortRoot,(Resolve-Path -LiteralPath $shortRoot).Path) }
+        else { Write-Output 'SKIP Windows 8.3 alias: short names unavailable on fixture volume.' }
+    }
+    foreach ($root in $roots) {
+        Assert-MatlabProjection $root $record
+        $sidecar=Join-Path $directory 'payload-source.json'
+        [IO.File]::WriteAllText($sidecar,($record | ConvertTo-Json -Depth 8))
+        try {
+            Assert-MatlabProjection $root $record
+            Assert-MatlabProjectionMetadata (Get-Content -LiteralPath $sidecar -Raw | ConvertFrom-Json) $record
+            [IO.File]::WriteAllText((Join-Path $directory 'extra.dll'),'extra')
+            try { Deny-Diagnostic { Assert-MatlabProjection $root $record } 'Exact full universal inventory' }
+            finally { Remove-Item -LiteralPath (Join-Path $directory 'extra.dll') }
+            $payload=Join-Path $directory $MatlabProjectionFiles[0]
+            $original=[IO.File]::ReadAllBytes($payload)
+            try {
+                [IO.File]::WriteAllText($payload,'altered')
+                Deny-Diagnostic { Assert-MatlabProjection $root $record } 'Payload hash mismatch'
+            } finally { [IO.File]::WriteAllBytes($payload,$original) }
+            Rename-Item -LiteralPath $sidecar -NewName 'PAYLOAD-SOURCE.JSON'
+            Deny-Diagnostic { Assert-MatlabProjection $root $record } 'Exact full universal inventory'
+            Rename-Item -LiteralPath (Join-Path $directory 'PAYLOAD-SOURCE.JSON') -NewName 'payload-source.json'
+            $caseRecord=$record | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+            $caseRecord.files[0].source=$caseRecord.files[0].source.ToUpperInvariant()
+            Deny-Diagnostic { Assert-MatlabProjection $root $caseRecord } 'Exact full universal inventory'
+            Write-Output "PASS projection inventory path: $root"
+        } finally {
+            foreach ($name in @('payload-source.json','PAYLOAD-SOURCE.JSON')) {
+                $path=Join-Path $directory $name
+                if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path }
+            }
+        }
+    }
+
 } finally {
     $env:GITHUB_ENV=$savedEnvironment
     Remove-Item Function:Copy-Item

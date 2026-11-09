@@ -1,10 +1,7 @@
-param([switch]$ProjectionOnly)
 # Offline contract tests only: synthetic files/API responses never count as runtime proof.
-if ($ProjectionOnly) { . "$PSScriptRoot/../MatlabContract.ps1" } else {
 . "$PSScriptRoot/../MatlabPromotion.ps1"
 . "$PSScriptRoot/../MatlabDevStage.ps1"
 & "$PSScriptRoot/Test-MatlabMacCoverage.ps1"
-}
 function Assert-Rejected([scriptblock]$Action,[string]$Because) {
     $rejected=$false
     try { & $Action } catch { $rejected=$true }
@@ -12,11 +9,9 @@ function Assert-Rejected([scriptblock]$Action,[string]$Because) {
 }
 $candidate=[pscustomobject]@{repository='cwru-non-academic/WSSCore';commit=('a'*40);run_id='123';artifact_id='456';archive='WSS-Universal-ci.zip';sha256=('b'*64)}
 $repositoryRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
-if (!$ProjectionOnly) {
 $installed=Get-Content (Join-Path $repositoryRoot '.github/matlab-candidate.json') -Raw | ConvertFrom-Json
 Assert-MatlabProjection (Join-Path $repositoryRoot 'Cs_Libraries') $installed
 Write-Output 'PASS installed payload manifest digest and full file hashes.'
-}
 # Legacy branch cases must remain independent of the installed/promoted payload.
 # This synthetic metadata is never used to verify or replace installed files.
 $legacyFiles=@($MatlabBootstrapProjectionFiles | ForEach-Object { @{source=$_;sha256=('0'*64)} })
@@ -36,10 +31,8 @@ Assert-Rejected { Assert-MatlabCandidate $bad } 'missing artifact checksum'
 $bad=$candidate | ConvertTo-Json | ConvertFrom-Json
 $bad.commit=('c'*40)
 Assert-Rejected { Assert-MatlabSameCandidate $bad $candidate } 'different producer tuple'
-if (!$ProjectionOnly) {
 Assert-Rejected { Assert-MatlabDiff @('src/+wss/StimulationController.m') (Get-MatlabAllowedWrapperPaths) } 'implementation changes in dependency PR'
 Assert-Rejected { Assert-MatlabDiff @() (Get-MatlabAllowedWrapperPaths) } 'empty promotion'
-}
 $directory=Join-Path ([IO.Path]::GetTempPath()) ('wss-matlab-contract-'+[guid]::NewGuid())
 $null=New-Item -ItemType Directory -Path $directory
 try {
@@ -51,45 +44,6 @@ try {
     $files=@($MatlabProjectionFiles | ForEach-Object { @{source=$_;sha256=(Get-FileHash (Join-Path $directory $_)).Hash.ToLowerInvariant()} })
     $record=[pscustomobject]@{schema='wss-matlab-projection/v1';bootstrap_reference=$false;candidate=$candidate;files=$files;projection_sha256=(Get-MatlabProjectionDigest $files)}
     Assert-MatlabProjection $directory $record
-    # Exercise the existing verifier, with staging and installed-sidecar inventories.
-    $roots=@($directory,(Join-Path $directory '.'))
-    if ($IsWindows) {
-        $fileSystem=New-Object -ComObject Scripting.FileSystemObject
-        try { $shortRoot=$fileSystem.GetFolder($directory).ShortPath }
-        finally { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($fileSystem) }
-        if ($shortRoot -cne $directory) { $roots+=@($shortRoot,(Resolve-Path -LiteralPath $shortRoot).Path) }
-        else { Write-Output 'SKIP Windows 8.3 alias: short names unavailable on fixture volume.' }
-    }
-    foreach ($root in $roots) {
-        Assert-MatlabProjection $root $record
-        $sidecar=Join-Path $directory 'payload-source.json'
-        [IO.File]::WriteAllText($sidecar,($record | ConvertTo-Json -Depth 8))
-        try {
-            Assert-MatlabProjection $root $record
-            Assert-MatlabProjectionMetadata (Get-Content -LiteralPath $sidecar -Raw | ConvertFrom-Json) $record
-            [IO.File]::WriteAllText((Join-Path $directory 'extra.dll'),'extra')
-            try { Assert-Rejected { Assert-MatlabProjection $root $record } 'alias extra payload' }
-            finally { Remove-Item -LiteralPath (Join-Path $directory 'extra.dll') }
-            $payload=Join-Path $directory $MatlabProjectionFiles[0]
-            $original=[IO.File]::ReadAllBytes($payload)
-            try {
-                [IO.File]::WriteAllText($payload,'altered')
-                Assert-Rejected { Assert-MatlabProjection $root $record } 'alias payload hash mismatch'
-            } finally { [IO.File]::WriteAllBytes($payload,$original) }
-            Rename-Item -LiteralPath $sidecar -NewName 'PAYLOAD-SOURCE.JSON'
-            Assert-Rejected { Assert-MatlabProjection $root $record } 'sidecar spelling is case sensitive'
-            Rename-Item -LiteralPath (Join-Path $directory 'PAYLOAD-SOURCE.JSON') -NewName 'payload-source.json'
-            $caseRecord=$record | ConvertTo-Json -Depth 8 | ConvertFrom-Json
-            $caseRecord.files[0].source=$caseRecord.files[0].source.ToUpperInvariant()
-            Assert-Rejected { Assert-MatlabProjection $root $caseRecord } 'payload inventory spelling is case sensitive'
-            Write-Output "PASS projection inventory path: $root"
-        } finally {
-            foreach ($name in @('payload-source.json','PAYLOAD-SOURCE.JSON')) {
-                $path=Join-Path $directory $name
-                if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path }
-            }
-        }
-    }
     Assert-MatlabProjectionMetadata $record $record
     Assert-Rejected { Assert-MatlabProjectionMetadata $legacyBootstrap $record } 'legacy metadata alongside a declared candidate'
     $staleMetadata=$record | ConvertTo-Json -Depth 8 | ConvertFrom-Json
@@ -115,7 +69,6 @@ try {
     if (!$resolved.StartsWith($temporary,[StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($resolved) -notlike 'wss-matlab-contract-*') { throw 'Unsafe temporary cleanup path.' }
     Remove-Item -LiteralPath $resolved -Recurse -Force
 }
-if ($ProjectionOnly) { Write-Output 'PASS focused offline MATLAB projection contracts.'; return }
 $script:producerEvent='push'; $script:producerJob='success'; $script:artifactExpired=$false; $script:comparisonStatus='identical'; $script:coreHead=$candidate.commit
 function Invoke-MatlabGh([string[]]$Arguments) {
     $uri=$Arguments[-1]
