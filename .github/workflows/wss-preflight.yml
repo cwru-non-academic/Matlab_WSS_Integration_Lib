@@ -105,7 +105,7 @@ jobs:
           name: matlab-preflight-evidence
           path: ${{ runner.temp }}/matlab-preflight/evidence/
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 90
   compatibility:
     name: Preflight compatibility (${{ matrix.name }})
     strategy:
@@ -337,7 +337,7 @@ jobs:
           name: matlab-preflight-compatibility-macOS
           path: ${{ runner.temp }}/mac-coverage/compatibility.json
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 90
   candidate-provenance:
     name: Publish normalized candidate provenance
     needs: [behavioral, compatibility, macos-compatibility]
