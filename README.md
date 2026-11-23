@@ -4,6 +4,12 @@ Reusable MATLAB access to WSS Core. Applications and GUIs consume this library;
 console input and command parsing belong to
 [`CLI_Matlab_WSS_Application`](https://github.com/cwru-non-academic/CLI_Matlab_WSS_Application).
 
+## Try the library without hardware
+
+Build the managed host and load the library in a fresh MATLAB session using [Build and load](#build-and-load). The example creates a controller with `ConformanceMode` and registers shutdown with `onCleanup`. Use a disposable configuration directory for interactive experiments.
+
+For a standalone console and a simulated pass/fail check, use the [MATLAB CLI quickstart](https://github.com/cwru-non-academic/CLI_Matlab_WSS_Application/blob/dev/README.md#first-stimulation) through `wss_cli.main({'--conformance'})`. The CLI uses its own pinned library revision.
+
 ## Layout
 
 - `src/+wss/`: `WssConfig`, `StimulationController`, assembly loading.
