@@ -31,11 +31,9 @@ if ($staged -and !$barrier) {
 }
 if (!$staged -and $barrier) { throw 'Barrier resume cannot substitute for a legacy producer merge event.' }
 $body=@{ref=(Get-WssCiChannel);inputs=@{wrapper_sha=$pr.merge_commit_sha;wrapper_pr=[string]$pr.number;approval_json=($approval | ConvertTo-Json -Depth 8 -Compress)}} | ConvertTo-Json -Depth 6 -Compress
-$pages=Invoke-MatlabGh -Arguments @('api','--paginate','--slurp',"repos/$($application.repository)/actions/workflows/promote-integration.yml/runs?event=workflow_dispatch&per_page=100") | ConvertFrom-Json
-$existing=@($pages | ForEach-Object { $_.workflow_runs } | Where-Object { $_.display_title -ceq "Promote Integration $($pr.merge_commit_sha) / wss-$($approval.candidate.run_id)-$($approval.candidate.artifact_id)" })
 . "$PSScriptRoot/wss-ci/DispatchProof.ps1"
-$run=if($existing.Count -eq 1 -and [string]$existing[0].id -cmatch '^[1-9][0-9]*$'){Invoke-MatlabGh -Arguments @('api',"repos/$($application.repository)/actions/runs/$($existing[0].id)")|ConvertFrom-Json}else{$null}
-$reuse=Invoke-WssCiDispatchProof @{operation='reuse';runs=$existing;run=$run;expected=@{repository=$application.repository;source_sha=$approval.$Role.source_sha;title="Promote Integration $($pr.merge_commit_sha) / wss-$($approval.candidate.run_id)-$($approval.candidate.artifact_id)"}}
+$title="Promote Integration $($pr.merge_commit_sha) / wss-$($approval.candidate.run_id)-$($approval.candidate.artifact_id)"
+$reuse=Test-WssCiApplicationDispatchReuse $application.repository $approval.$Role.source_sha $title $pr.merged_at Invoke-MatlabGh
 if($reuse){'dispatch_needed=false' >> $env:GITHUB_OUTPUT; exit 0}
 $intentName="matlab-$Role-dispatch-$($pr.merge_commit_sha)"
 Assert-WssCiDispatchArtifacts $env:GITHUB_REPOSITORY $intentName

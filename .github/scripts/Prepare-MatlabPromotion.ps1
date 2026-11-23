@@ -32,10 +32,13 @@ if ($Role -ceq 'wrapper') {
     $current=Get-Content -LiteralPath (Join-Path $RepositoryRoot '.github/matlab-candidate.json') -Raw | ConvertFrom-Json
     Assert-MatlabProjection (Join-Path $RepositoryRoot $MatlabPluginPath) $current
     Assert-MatlabForwardCandidate $current $candidate $projection.projection_sha256
-    if ($current.projection_sha256 -ceq $projection.projection_sha256) {
+    if (!$current.bootstrap_reference -and [bigint]$candidate.run_id -lt [bigint]$current.candidate.run_id) { throw 'Candidate producer run would roll back the recorded dependency.' }
+    if (!$current.bootstrap_reference -and $current.candidate.run_id -ceq $candidate.run_id) {
+        Assert-MatlabSameCandidate $current.candidate $candidate
+        if ($current.projection_sha256 -cne $projection.projection_sha256) { throw 'Installed payload differs for the same candidate.' }
         @{no_op=$true;role=$Role;source_sha=$source} | ConvertTo-Json | Set-Content (Join-Path $WorkRoot 'prepared.json')
         'no_op=true' >> $env:GITHUB_OUTPUT
-        Write-Output 'Verified identical payload: preserve committed provenance; no artificial PR.'
+        Write-Output 'This exact verified candidate is already installed.'
         exit 0
     }
     $cliSha=Get-MatlabHead $MatlabCliRepository
