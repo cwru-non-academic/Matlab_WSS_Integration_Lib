@@ -17,9 +17,25 @@ switch config.Transport
         options.DeviceId = config.BleDeviceId;
         transport = Wss.Transports.BleNusTransport(options);
     otherwise
+        loadLinuxSerialNative(config.CsLibDir);
         options = Wss.Transports.SerialPortTransportOptions();
         options.PortName = config.SerialPort;
         options.AutoSelectPort = isempty(config.SerialPort);
         transport = Wss.Transports.SerialPortTransport(options);
 end
+end
+
+function loadLinuxSerialNative(csLibDir)
+% MATLAB hosts .NET without the package's runtime asset probing paths.
+% Keep the native module loaded for the lifetime of the managed Ports calls.
+if ~strcmp(computer, 'GLNXA64'), return; end
+persistent loadedPaths
+if isempty(loadedPaths), loadedPaths = {}; end
+native = fullfile(csLibDir, 'runtimes', 'linux-x64', 'native', 'libSystem.IO.Ports.Native.so');
+if any(strcmp(loadedPaths, native)), return; end
+if ~isfile(native)
+    error('wss:MissingSerialRuntime', 'Selected Linux serial transport requires %s.', native);
+end
+System.Runtime.InteropServices.NativeLibrary.Load(native);
+loadedPaths{end+1} = native;
 end

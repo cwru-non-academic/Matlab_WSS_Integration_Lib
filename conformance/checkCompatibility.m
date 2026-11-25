@@ -1,10 +1,13 @@
 function result = checkCompatibility(csLibDir)
-%CHECKCOMPATIBILITY Load-only serial/BLE package checks, separate from behavior.
-% No Initialize, Open, scan, ConnectAsync or stimulation operation is called.
+%CHECKCOMPATIBILITY Package checks plus a Linux open against a nonexistent port.
 root = fileparts(fileparts(mfilename('fullpath')));
 if nargin < 1, csLibDir = fullfile(root, 'Cs_Libraries'); end
 wss.loadRuntime(wss.WssConfig('CsLibDir', csLibDir));
-serial = wss.createTransport(wss.WssConfig('CsLibDir', csLibDir, 'SerialPort', 'ci-load-only'));
+diagnosticPort = 'ci-load-only';
+if isunix && ~ismac
+    diagnosticPort = ['/dev/wss-ci-' char(System.Guid.NewGuid().ToString('N'))];
+end
+serial = wss.createTransport(wss.WssConfig('CsLibDir', csLibDir, 'SerialPort', diagnosticPort));
 serialCleanup = onCleanup(@() serial.Dispose());
 port = System.IO.Ports.SerialPort();
 portCleanup = onCleanup(@() port.Dispose());
@@ -15,7 +18,26 @@ expectedPorts = fullfile(csLibDir, 'runtimes', runtime, 'lib', 'net8.0', 'System
 assert(strcmpi(char(System.IO.Path.GetFullPath(actualPorts)), char(System.IO.Path.GetFullPath(expectedPorts))), ...
     'Ports assembly did not load from the selected payload runtime.');
 assert(port.GetType().Assembly.GetName().Version.Major == 8, 'Expected System.IO.Ports major version 8.');
-assert(~port.IsOpen, 'Load-only check must never open a serial port.');
+assert(~port.IsOpen, 'Serial construction must leave the port closed.');
+if isunix && ~ismac
+    assert(~isfile(diagnosticPort) && ~isfolder(diagnosticPort), 'Expected a nonexistent diagnostic port.');
+    try
+        task = serial.ConnectAsync(System.Threading.CancellationToken.None);
+        awaiter = task.GetAwaiter();
+        awaiter.GetResult();
+        error('wss_ci:UnexpectedSerialOpen', 'Unexpectedly opened %s.', diagnosticPort);
+    catch failure
+        if ~isa(failure, 'NET.NetException')
+            rethrow(failure);
+        end
+        native = failure.ExceptionObject;
+        expected = {'System.UnauthorizedAccessException', 'System.IO.FileNotFoundException', 'System.IO.IOException'};
+        if ~ismember(char(native.GetType().FullName), expected) || ~contains(char(native.Message), diagnosticPort)
+            rethrow(failure);
+        end
+    end
+    fprintf('Linux Serial reached native open and rejected a nonexistent port.\n');
+end
 result = struct('Serial', 'passed', 'Ble', '', 'Platform', computer);
 if ismac && ~wss.hasMacBlePayload(csLibDir)
     result.Ble = 'unsupported-by-legacy-payload';
